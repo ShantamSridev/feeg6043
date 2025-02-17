@@ -1,0 +1,8 @@
+LICENSE
+README.md
+setup.py
+src/uos_feeg6043_build.egg-info/PKG-INFO
+src/uos_feeg6043_build.egg-info/SOURCES.txt
+src/uos_feeg6043_build.egg-info/dependency_links.txt
+src/uos_feeg6043_build.egg-info/requires.txt
+src/uos_feeg6043_build.egg-info/top_level.txt

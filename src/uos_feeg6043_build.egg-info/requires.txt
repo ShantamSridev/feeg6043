@@ -1,0 +1,15 @@
+zeroros>=1.0.8
+pygame
+pbr
+tornado>=6.1
+pyyaml
+numpy==1.26.4
+matplotlib
+importlib-metadata==4.13.0
+setuptools==69.0.3
+pyserial==3.5
+pyzmq==25.1.1
+pglive==0.7.6
+pyqt5
+scipy
+scikit-learn

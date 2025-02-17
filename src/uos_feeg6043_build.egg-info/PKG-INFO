@@ -1,0 +1,38 @@
+Metadata-Version: 2.1
+Name: uos_feeg6043_build
+Version: 1.0.6
+Summary: Build repository for the module FEEG6043 - Intelligent Mobile Robot
+Home-page: https://git.soton.ac.uk/feeg6043/uos_feeg6043_build
+Author: Miquel Massot
+Author-email: miquel.massot@gmail.com
+Maintainer: Blair Thornton
+Maintainer-email: b.thornton@soton.ac.uk
+License: GPLv3
+Project-URL: Bug Reports, https://git.soton.ac.uk/feeg6043/uos_feeg6043_build/issues
+Project-URL: Source, https://git.soton.ac.uk/feeg6043/uos_feeg6043_build
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Software Development
+Classifier: Topic :: Software Development :: Libraries
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: System :: Hardware :: Hardware Drivers
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: zeroros>=1.0.8
+Requires-Dist: pygame
+Requires-Dist: pbr
+Requires-Dist: tornado>=6.1
+Requires-Dist: pyyaml
+Requires-Dist: numpy==1.26.4
+Requires-Dist: matplotlib
+Requires-Dist: importlib-metadata==4.13.0
+Requires-Dist: setuptools==69.0.3
+Requires-Dist: pyserial==3.5
+Requires-Dist: pyzmq==25.1.1
+Requires-Dist: pglive==0.7.6
+Requires-Dist: pyqt5
+Requires-Dist: scipy
+Requires-Dist: scikit-learn
