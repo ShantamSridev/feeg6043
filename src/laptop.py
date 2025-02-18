@@ -55,10 +55,14 @@ class LaptopPilot:
         self.max_acceleration = 0.1  # meters per second^2
         self.turning_radius = 0.3  # meters - minimum turning radius
         # control parameters        
+
+        #GAIN VARIABLES
         self.tau_s = 0.5 # s to remove along track error
-        # compute control gains for the initial condition (where robot is stationary)
-        self.k_s = 2/self.tau_s  # along track gain
         self.L = 0.1 # m distance to remove normal and angular error
+
+
+        # compute control gains for the initial condition (where robot is stationary)
+        self.k_s = 1/self.tau_s  # along track gain
         self.v_max = self.max_velocity # fastest the robot can go
         self.w_max = np.deg2rad(30) # fastest the robot can turn
 
