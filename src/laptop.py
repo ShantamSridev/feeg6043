@@ -19,6 +19,8 @@ from model_feeg6043 import ActuatorConfiguration
 from math_feeg6043 import Vector
 from model_feeg6043 import rigid_body_kinematics
 from model_feeg6043 import RangeAngleKinematics
+from model_feeg6043 import TrajectoryGenerate
+from math_feeg6043 import l2m
 
 
 class LaptopPilot:
@@ -45,12 +47,20 @@ class LaptopPilot:
         ############# INITIALISE ATTRIBUTES ##########       
         wheel_distance = 0.16
         wheel_diameter = 0.07
+        
+        # Trajectory parameters
+        self.max_velocity = 0.2  # meters per second
+        self.max_acceleration = 0.1  # meters per second^2
+        self.turning_radius = 0.3  # meters - minimum turning radius
+        
         self.initialise_pose = True # False once the pose is initialised 
 
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
+
         # path
-        self.northings_path = []
-        self.eastings_path = []        
+        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        self.relative_path = True # False if you want it to be absolute
 
         # model pose
         self.est_pose_northings_m = None
@@ -175,6 +185,22 @@ class LaptopPilot:
         pose_msg.pose.orientation = quat        
         return pose_msg
 
+    # TRAJECTORY GENERATION
+    def generate_trajectory(self):
+        # pick waypoints as current pose relative or absolute northings and eastings
+        if self.relative_path == True:
+            for i in range(len(self.northings_path)):
+                self.northings_path[i] += self.measured_pose_northings_m  # offset by current northings
+                self.eastings_path[i] += self.measured_pose_eastings_m  # offset by current eastings
+
+            # convert path to matrix and create a trajectory class instance
+            C = l2m([self.northings_path, self.eastings_path])        
+            self.path = TrajectoryGenerate(C, self.measured_pose_yaw_rad)        
+            
+            # set trajectory variables (velocity, acceleration and turning arc radius)
+            self.path.path_to_trajectory(self.max_velocity, self.max_acceleration)  # velocity and acceleration
+            self.path.turning_arcs(self.turning_radius)  # turning radius
+            self.path.wp_id = 0  # initialises the next waypoint
 
     def run(self, time_to_run=-1):
         self.start_time = datetime.utcnow().timestamp()
@@ -225,6 +251,9 @@ class LaptopPilot:
                 self.t = 0 #elapsed time
                 time.sleep(0.1) #wait for approx a timestep before proceeding
                 
+                # Generate trajectory after initializing pose
+                self.generate_trajectory()
+                
                 # path and trajectory are initialised
                 self.initialise_pose = False 
 
@@ -257,6 +286,18 @@ class LaptopPilot:
                 self.est_pose_eastings_m = p_robot[1,0]
                 self.est_pose_yaw_rad = p_robot[2,0]
 
+                #################### Trajectory sample #################################    
+                #if hasattr(self, 'path'):
+                # feedforward control: check wp progress and sample reference trajectory
+                self.path.wp_progress(self.t, p_robot, self.turning_radius)  # fill turning radius
+                p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
+
+                #SHOW 
+                self.est_pose_northings_m = p_ref[0,0]
+                self.est_pose_eastings_m = p_ref[1,0]
+                self.est_pose_yaw_rad = p_ref[2,0]
+
+                
         # > Think < #
         ################################################################################
         #  TODO: Implement your state estimation
@@ -271,8 +312,8 @@ class LaptopPilot:
         #  TODO: Implement your controller here                                        #
 
         wheel_speed_msg = Vector3Stamped()
-        wheel_speed_msg.vector.x = 1.5 * np.pi  # Right wheel 1 rev/s = 1*pi rad/s
-        wheel_speed_msg.vector.y = 2 * np.pi  # Left wheel 1 rev/s = 2*pi rad/s
+        wheel_speed_msg.vector.x = 1 * np.pi  # Right wheel 1 rev/s = 1*pi rad/s
+        wheel_speed_msg.vector.y = 1 * np.pi  # Left wheel 1 rev/s = 2*pi rad/s
 
         self.cmd_wheelrate_right = wheel_speed_msg.vector.x
         self.cmd_wheelrate_left = wheel_speed_msg.vector.y
