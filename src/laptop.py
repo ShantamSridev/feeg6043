@@ -47,7 +47,7 @@ class LaptopPilot:
         self.aruco_driver = ArUcoUDPDriver(aruco_params, parent=self)
 
         ############# INITIALISE ATTRIBUTES ##########       
-        wheel_distance = 0.16
+        wheel_distance = 0.4
         wheel_diameter = 0.07
         
         # Trajectory parameters
