@@ -195,7 +195,7 @@ class LaptopPilot:
 
             # convert path to matrix and create a trajectory class instance
             C = l2m([self.northings_path, self.eastings_path])        
-            self.path = TrajectoryGenerate(C, self.measured_pose_yaw_rad)        
+            self.path = TrajectoryGenerate(C[:,0], C[:,1])        
             
             # set trajectory variables (velocity, acceleration and turning arc radius)
             self.path.path_to_trajectory(self.max_velocity, self.max_acceleration)  # velocity and acceleration
