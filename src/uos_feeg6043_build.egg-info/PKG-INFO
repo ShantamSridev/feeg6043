@@ -1,4 +1,4 @@
-Metadata-Version: 2.2
+Metadata-Version: 2.1
 Name: uos_feeg6043_build
 Version: 1.0.6
 Summary: Build repository for the module FEEG6043 - Intelligent Mobile Robot
@@ -36,14 +36,3 @@ Requires-Dist: pglive==0.7.6
 Requires-Dist: pyqt5
 Requires-Dist: scipy
 Requires-Dist: scikit-learn
-Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: description-content-type
-Dynamic: home-page
-Dynamic: license
-Dynamic: maintainer
-Dynamic: maintainer-email
-Dynamic: project-url
-Dynamic: requires-dist
-Dynamic: summary
