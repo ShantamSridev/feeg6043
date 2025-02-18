@@ -21,6 +21,8 @@ from model_feeg6043 import rigid_body_kinematics
 from model_feeg6043 import RangeAngleKinematics
 from model_feeg6043 import TrajectoryGenerate
 from math_feeg6043 import l2m
+from model_feeg6043 import feedback_control
+from math_feeg6043 import Inverse, HomogeneousTransformation
 
 
 class LaptopPilot:
@@ -52,6 +54,15 @@ class LaptopPilot:
         self.max_velocity = 0.2  # meters per second
         self.max_acceleration = 0.1  # meters per second^2
         self.turning_radius = 0.3  # meters - minimum turning radius
+        # control parameters        
+        self.tau_s = 0.5 # s to remove along track error
+        # compute control gains for the initial condition (where robot is stationary)
+        self.k_s = 2/self.tau_s  # along track gain
+        self.L = 0.1 # m distance to remove normal and angular error
+        self.v_max = self.max_velocity # fastest the robot can go
+        self.w_max = np.deg2rad(30) # fastest the robot can turn
+
+        self.initialise_control = True # False once control gains is initialised 
         
         self.initialise_pose = True # False once the pose is initialised 
 
@@ -154,7 +165,7 @@ class LaptopPilot:
     def groundtruth_callback(self, msg):
         """This callback receives the odometry ground truth from the simulator."""
         self.datalog.log(msg, topic_name="/groundtruth")
-    
+
     def pose_parse(self, msg, aruco = False):
         # parser converts pose data to a standard format for logging
         time_stamp = msg[0]
@@ -297,32 +308,53 @@ class LaptopPilot:
                 self.est_pose_eastings_m = p_ref[1,0]
                 self.est_pose_yaw_rad = p_ref[2,0]
 
+                # feedback control: get pose change to desired trajectory from body
+                dp = Vector(3)  # Create vector for pose difference in e-frame
+                dp = p_ref - p_robot  # Northings difference
+                dp[2] = (dp[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
+
+                # Transform difference to body frame
+                H_eb = HomogeneousTransformation(p_robot[0:2],p_robot[2])  # body to earth transform
+                ds = Inverse(H_eb.H_R) @ dp 
+
+                if self.initialise_control == True:
+                    # Initial gains when starting from rest
+                    self.k_n = (2*(u_ref[0]))/(self.L**2)
+                    self.k_g = u_ref[0]/self.L # heading gain
+                    self.initialise_control = False  # maths changes after first iteration
+
+                # update the controls
+                du = feedback_control(ds, self.k_s, self.k_n, self.k_g)
+
+                # total control - combine feedback and feedforward
+                u = u_ref + du
+
+                # ensure within performance limitations
+                if u[0] > self.v_max: u[0] = self.v_max
+                if u[0] < -self.v_max: u[0] = -self.v_max
+                if u[1] > self.w_max: u[1] = self.w_max
+                if u[1] < -self.w_max: u[1] = -self.w_max
+
+                # update control gains for next timestep
+                self.k_n = (2*u[0])/(self.L**2) # cross track gain
+                self.k_g = u[0]/self.L  # heading gain
+
+                # actuator commands                 
+                q = self.ddrive.inv_kinematics(u)            
+                print(f"q: {q}")
                 
-        # > Think < #
-        ################################################################################
-        #  TODO: Implement your state estimation
-        if self.est_pose_northings_m is None:
-            self.est_pose_northings_m = 0
-            self.est_pose_eastings_m = 0
-            self.est_pose_yaw_rad = 0
-        
-        msg = self.pose_parse([datetime.utcnow().timestamp(),self.est_pose_northings_m,self.est_pose_eastings_m,0,0,0,self.est_pose_yaw_rad])
-        self.datalog.log(msg, topic_name="/est_pose")
-        ################################################################################
-        #  TODO: Implement your controller here                                        #
+                wheel_speed_msg = Vector3Stamped()
+                wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
+                wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
 
-        wheel_speed_msg = Vector3Stamped()
-        wheel_speed_msg.vector.x = 1 * np.pi  # Right wheel 1 rev/s = 1*pi rad/s
-        wheel_speed_msg.vector.y = 1 * np.pi  # Left wheel 1 rev/s = 2*pi rad/s
-
-        self.cmd_wheelrate_right = wheel_speed_msg.vector.x
-        self.cmd_wheelrate_left = wheel_speed_msg.vector.y
+                self.cmd_wheelrate_right = wheel_speed_msg.vector.x
+                self.cmd_wheelrate_left = wheel_speed_msg.vector.y
         ################################################################################
 
-        # > Act < #
-        # Send commands to the robot        
-        self.wheel_speed_pub.publish(wheel_speed_msg)
-        self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
+                # > Act < #
+                # Send commands to the robot        
+                self.wheel_speed_pub.publish(wheel_speed_msg)
+                self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
 
 
 if __name__ == "__main__":
