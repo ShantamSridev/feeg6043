@@ -23,6 +23,7 @@ from model_feeg6043 import TrajectoryGenerate
 from math_feeg6043 import l2m
 from model_feeg6043 import feedback_control
 from math_feeg6043 import Inverse, HomogeneousTransformation
+from model_feeg6043 import extended_kalman_filter_predict, extended_kalman_filter_update
 
 
 class LaptopPilot:
@@ -47,8 +48,10 @@ class LaptopPilot:
         self.aruco_driver = ArUcoUDPDriver(aruco_params, parent=self)
 
         ############# INITIALISE ATTRIBUTES ##########       
-        wheel_distance = 0.4
-        wheel_diameter = 0.07
+        wheel_distance = 0.275
+        wheel_diameter = 0.065
+        #wheel_distance = 0.08
+        #wheel_diameter = 0.065
         
         # Trajectory parameters
         self.max_velocity = 0.2  # meters per second
@@ -302,9 +305,8 @@ class LaptopPilot:
                 self.est_pose_yaw_rad = p_robot[2,0]
 
                 #################### Trajectory sample #################################    
-                #if hasattr(self, 'path'):
                 # feedforward control: check wp progress and sample reference trajectory
-                self.path.wp_progress(self.t, p_robot, self.turning_radius)  # fill turning radius
+                self.path.wp_progress(self.t, p_robot, self.turning_radius)
                 p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
 
                 #SHOW 
@@ -314,7 +316,7 @@ class LaptopPilot:
 
                 # feedback control: get pose change to desired trajectory from body
                 dp = Vector(3)  # Create vector for pose difference in e-frame
-                dp = p_ref - p_robot  # Northings difference
+                dp = p_ref - p_robot  # difference
                 dp[2] = (dp[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
 
                 # Transform difference to body frame
@@ -327,11 +329,15 @@ class LaptopPilot:
                     self.k_g = u_ref[0]/self.L # heading gain
                     self.initialise_control = False  # maths changes after first iteration
 
+
+                # IMPLEMENT EKF HERE
+
+
                 # update the controls
                 du = feedback_control(ds, self.k_s, self.k_n, self.k_g)
 
                 # total control - combine feedback and feedforward
-                u = u_ref + du
+                u = u_ref + du #+ EKF ERROR
 
                 # ensure within performance limitations
                 if u[0] > self.v_max: u[0] = self.v_max
