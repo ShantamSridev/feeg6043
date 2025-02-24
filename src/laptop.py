@@ -31,7 +31,7 @@ class LaptopPilot:
         # network for sensed pose
         aruco_params = {
             "port": 50000,  # Port to listen to (DO NOT CHANGE)
-            "marker_id": 20,  # Marker ID to listen to (CHANGE THIS to your marker ID)            
+            "marker_id": 24,  # Marker ID to listen to (CHANGE THIS to your marker ID)            
         }
         self.robot_ip = "192.168.90.1"
         
@@ -259,75 +259,75 @@ class LaptopPilot:
             self.datalog.log(msg, topic_name="/aruco")
 
             ###### wait for the first sensor info to initialize the pose ######
-            if self.initialise_pose == True:
-                self.est_pose_northings_m = self.measured_pose_northings_m
-                self.est_pose_eastings_m = self.measured_pose_eastings_m
-                self.est_pose_yaw_rad = self.measured_pose_yaw_rad
+        if self.initialise_pose == True:
+            self.est_pose_northings_m = self.measured_pose_northings_m
+            self.est_pose_eastings_m = self.measured_pose_eastings_m
+            self.est_pose_yaw_rad = self.measured_pose_yaw_rad
 
-                # get current time and determine timestep
-                self.t_prev = datetime.utcnow().timestamp() #initialise the time
-                self.t = 0 #elapsed time
-                time.sleep(0.1) #wait for approx a timestep before proceeding
-                
-                # Generate trajectory after initializing pose
-                self.generate_trajectory()
-                
-                # path and trajectory are initialised
-                self.initialise_pose = False 
+            # get current time and determine timestep
+            self.t_prev = datetime.utcnow().timestamp() #initialise the time
+            self.t = 0 #elapsed time
+            time.sleep(0.1) #wait for approx a timestep before proceeding
+            
+            # Generate trajectory after initializing pose
+            self.generate_trajectory()
+            
+            # path and trajectory are initialised
+            self.initialise_pose = False 
 
-            if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
-                ################### Motion Model ##############################
-                # convert true wheel speeds in to twist
-                q = Vector(2)            
-                q[0] = self.measured_wheelrate_right # wheel rate rad/s (measured)
-                q[1] = self.measured_wheelrate_left # wheel rate rad/s (measured)
-                u = self.ddrive.fwd_kinematics(q) 
-                
-                #determine the time step
-                t_now = datetime.utcnow().timestamp()        
-                        
-                dt = t_now - self.t_prev #timestep from last estimate
-                self.t += dt #add to the elapsed time
-                self.t_prev = t_now #update the previous timestep for the next loop
+        if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
+            ################### Motion Model ##############################
+            # convert true wheel speeds in to twist
+            q = Vector(2)            
+            q[0] = self.measured_wheelrate_right # wheel rate rad/s (measured)
+            q[1] = self.measured_wheelrate_left # wheel rate rad/s (measured)
+            u = self.ddrive.fwd_kinematics(q) 
+            
+            #determine the time step
+            t_now = datetime.utcnow().timestamp()        
+                    
+            dt = t_now - self.t_prev #timestep from last estimate
+            self.t += dt #add to the elapsed time
+            self.t_prev = t_now #update the previous timestep for the next loop
 
-                # take current pose estimate and update by twist
-                p_robot = Vector(3)
-                p_robot[0,0] = self.est_pose_northings_m
-                p_robot[1,0] = self.est_pose_eastings_m
-                p_robot[2,0] = self.est_pose_yaw_rad
-                                    
-                p_robot = rigid_body_kinematics(p_robot, u, dt)
-                p_robot[2] = p_robot[2] % (2 * np.pi)  # deal with angle wrapping          
+            # take current pose estimate and update by twist
+            p_robot = Vector(3)
+            p_robot[0,0] = self.est_pose_northings_m
+            p_robot[1,0] = self.est_pose_eastings_m
+            p_robot[2,0] = self.est_pose_yaw_rad
+                                
+            p_robot = rigid_body_kinematics(p_robot, u, dt)
+            p_robot[2] = p_robot[2] % (2 * np.pi)  # deal with angle wrapping          
 
-                # update for show_laptop.py            
-                self.est_pose_northings_m = p_robot[0,0]
-                self.est_pose_eastings_m = p_robot[1,0]
-                self.est_pose_yaw_rad = p_robot[2,0]
+            # update for show_laptop.py            
+            self.est_pose_northings_m = p_robot[0,0]
+            self.est_pose_eastings_m = p_robot[1,0]
+            self.est_pose_yaw_rad = p_robot[2,0]
 
-                #################### Trajectory sample #################################    
-                # feedforward control: check wp progress and sample reference trajectory
-                self.path.wp_progress(self.t, p_robot, self.turning_radius)
-                p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
+            #################### Trajectory sample #################################    
+            # feedforward control: check wp progress and sample reference trajectory
+            self.path.wp_progress(self.t, p_robot, self.turning_radius)
+            p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
 
-                #SHOW 
-                self.est_pose_northings_m = p_ref[0,0]
-                self.est_pose_eastings_m = p_ref[1,0]
-                self.est_pose_yaw_rad = p_ref[2,0]
+            #SHOW 
+            self.est_pose_northings_m = p_ref[0,0]
+            self.est_pose_eastings_m = p_ref[1,0]
+            self.est_pose_yaw_rad = p_ref[2,0]
 
-                # feedback control: get pose change to desired trajectory from body
-                dp = Vector(3)  # Create vector for pose difference in e-frame
-                dp = p_ref - p_robot  # difference
-                dp[2] = (dp[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
+            # feedback control: get pose change to desired trajectory from body
+            dp = Vector(3)  # Create vector for pose difference in e-frame
+            dp = p_ref - p_robot  # difference
+            dp[2] = (dp[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
 
-                # Transform difference to body frame
-                H_eb = HomogeneousTransformation(p_robot[0:2],p_robot[2])  # body to earth transform
-                ds = Inverse(H_eb.H_R) @ dp 
+            # Transform difference to body frame
+            H_eb = HomogeneousTransformation(p_robot[0:2],p_robot[2])  # body to earth transform
+            ds = Inverse(H_eb.H_R) @ dp 
 
-                if self.initialise_control == True:
-                    # Initial gains when starting from rest
-                    self.k_n = (2*(u_ref[0]))/(self.L**2)
-                    self.k_g = u_ref[0]/self.L # heading gain
-                    self.initialise_control = False  # maths changes after first iteration
+            if self.initialise_control == True:
+                # Initial gains when starting from rest
+                self.k_n = (2*(u_ref[0]))/(self.L**2)
+                self.k_g = u_ref[0]/self.L # heading gain
+                self.initialise_control = False  # maths changes after first iteration
 
 
                 # IMPLEMENT EKF HERE
@@ -339,32 +339,32 @@ class LaptopPilot:
                 # total control - combine feedback and feedforward
                 u = u_ref + du #+ EKF ERROR
 
-                # ensure within performance limitations
-                if u[0] > self.v_max: u[0] = self.v_max
-                if u[0] < -self.v_max: u[0] = -self.v_max
-                if u[1] > self.w_max: u[1] = self.w_max
-                if u[1] < -self.w_max: u[1] = -self.w_max
+            # ensure within performance limitations
+            if u[0] > self.v_max: u[0] = self.v_max
+            if u[0] < -self.v_max: u[0] = -self.v_max
+            if u[1] > self.w_max: u[1] = self.w_max
+            if u[1] < -self.w_max: u[1] = -self.w_max
 
-                # update control gains for next timestep
-                self.k_n = (2*u[0])/(self.L**2) # cross track gain
-                self.k_g = u[0]/self.L  # heading gain
+            # update control gains for next timestep
+            self.k_n = (2*u[0])/(self.L**2) # cross track gain
+            self.k_g = u[0]/self.L  # heading gain
 
-                # actuator commands                 
-                q = self.ddrive.inv_kinematics(u)            
-                print(f"q: {q}")
-                
-                wheel_speed_msg = Vector3Stamped()
-                wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
-                wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
+            # actuator commands                 
+            q = self.ddrive.inv_kinematics(u)            
+            print(f"q: {q}")
+            
+            wheel_speed_msg = Vector3Stamped()
+            wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
+            wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
 
-                self.cmd_wheelrate_right = wheel_speed_msg.vector.x
-                self.cmd_wheelrate_left = wheel_speed_msg.vector.y
-        ################################################################################
+            self.cmd_wheelrate_right = wheel_speed_msg.vector.x
+            self.cmd_wheelrate_left = wheel_speed_msg.vector.y
+    ################################################################################
 
-                # > Act < #
-                # Send commands to the robot        
-                self.wheel_speed_pub.publish(wheel_speed_msg)
-                self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
+            # > Act < #
+            # Send commands to the robot        
+            self.wheel_speed_pub.publish(wheel_speed_msg)
+            self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
 
 
 if __name__ == "__main__":
