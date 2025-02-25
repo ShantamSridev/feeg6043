@@ -473,9 +473,9 @@ class LaptopPilot:
             p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
 
             #SHOW 
-            self.est_pose_northings_m = p_ref[0,0]
-            self.est_pose_eastings_m = p_ref[1,0]
-            self.est_pose_yaw_rad = p_ref[2,0]
+            #self.est_pose_northings_m = p_ref[0,0]
+            #self.est_pose_eastings_m = p_ref[1,0]
+            #self.est_pose_yaw_rad = p_ref[2,0]
 
             print("05")
 
