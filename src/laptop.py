@@ -14,10 +14,8 @@ from zeroros import Subscriber, Publisher
 from zeroros.messages import LaserScan, Vector3Stamped, Pose, PoseStamped, Header, Quaternion
 from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
-# add more libraries here
-
-from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
-from math_feeg6043 import l2m, Vector, Inverse, HomogeneousTransformation, Identity, eigsorted, gaussian, Matrix
+from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
+from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control, kalman_filter_predict, kalman_filter_update
 
 
 class LaptopPilot:
@@ -25,7 +23,7 @@ class LaptopPilot:
         # network for sensed pose
         aruco_params = {
             "port": 50000,  # Port to listen to (DO NOT CHANGE)
-            "marker_id": 20,  # Marker ID to listen to (CHANGE THIS to your marker ID)            
+            "marker_id": 24,  # Marker ID to listen to (CHANGE THIS to your marker ID)            
         }
         self.robot_ip = "192.168.90.1"
         
@@ -42,34 +40,40 @@ class LaptopPilot:
         self.aruco_driver = ArUcoUDPDriver(aruco_params, parent=self)
 
         ############# INITIALISE ATTRIBUTES ##########       
-        wheel_distance = 0.275
+        wheel_distance = 0.165
         wheel_diameter = 0.065
         
         # Trajectory parameters
-        self.max_velocity = 0.2  # meters per second
-        self.max_acceleration = 0.1  # meters per second^2
+        
+        self.velocity = 0.1
+        self.acceleration = self.velocity/3
+        
+        
         self.turning_radius = 0.3  # meters - minimum turning radius
         # control parameters        
 
         #GAIN VARIABLES
         self.tau_s = 0.5 # s to remove along track error
-        self.L = 0.1 # m distance to remove normal and angular error
+        self.L = 0.3 # m distance to remove normal and angular error
 
 
         # compute control gains for the initial condition (where robot is stationary)
         self.k_s = 1/self.tau_s  # along track gain
-        self.v_max = self.max_velocity # fastest the robot can go
-        self.w_max = np.deg2rad(30) # fastest the robot can turn
+        
+        self.v_max = 0.2 # fastest the robot can go
+        self.w_max = np.deg2rad(15) # fastest the robot can turn
 
         self.initialise_control = True # False once control gains is initialised 
-        self.initial_aruco = False 
+        
         self.initialise_pose = True # False once the pose is initialised 
 
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        
+        
         self.relative_path = True # False if you want it to be absolute
 
         # model pose
@@ -96,9 +100,11 @@ class LaptopPilot:
         self.lidar_data = None
         lidar_xb = 0.07 # location of lidar centre in b-frame primary axis
         lidar_yb = 0.0 # location of lidar centre in b-frame secondary axis
-        self.lidar = RangeAngleKinematics(lidar_xb,lidar_yb)       
+        self.lidar = RangeAngleKinematics(lidar_xb,lidar_yb)    
 
-         # EKF 
+        # EKF 
+
+
         # Easy names for indexing
         self.N = 0
         self.E = 1
@@ -111,6 +117,8 @@ class LaptopPilot:
         self.g_std = [np.deg2rad(1.0)]
         self.G_std = l2m(self.g_std)
         self.NE_std = l2m([self.n_std,self.e_std])
+        
+
 
         self.dot_x_R_std = l2m([0.02])
         self.dot_g_R_std = l2m([np.deg2rad(0.01)])
@@ -120,9 +128,22 @@ class LaptopPilot:
         self.state = Vector(5)
         self.covariance = Identity(5)
         self.R = Identity(5) 
-
-        self.aruco_ready = False
-
+        
+        self.covariance[self.N,self.N] = self.NE_std[0,0]**2
+        self.covariance[self.E, self.E] = self.NE_std[0,1]**2
+        self.covariance[self.G, self.G] = self.G_std[0]**2
+        self.covariance[self.DOTX, self.DOTX] = 0.0**2
+        self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
+        
+        self.R[self.N, self.N] = 0.1**2
+        self.R[self.E, self.E] = 0.1**2
+        self.R[self.G, self.G] = np.deg2rad(5)**2
+        self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
+        self.R[self.DOTG, self.DOTG] = np.deg2rad(self.dot_g_R_std)**2
+        
+        self.aruco_count = 0
+        self.loop_count = 0
+        
         self.datalog = DataLogger(log_dir="logs")
 
         # Wheels speeds in rad/s are encoded as a Vector3 with timestamp, 
@@ -141,17 +162,15 @@ class LaptopPilot:
             "/groundtruth", Pose, self.groundtruth_callback, ip=self.robot_ip
         )
                     
-        self.last_timestamp = None  # Add this with other initializations
-
     def true_wheel_speeds_callback(self, msg):
-        print("Received sensed wheel speeds: R=", msg.vector.x,", L=", msg.vector.y)
+        #print("Received sensed wheel speeds: R=", msg.vector.x,", L=", msg.vector.y)
         self.measured_wheelrate_right = msg.vector.x
         self.measured_wheelrate_left = msg.vector.y
         self.datalog.log(msg, topic_name="/true_wheel_speeds")
 
     def lidar_callback(self, msg):
         # This is a callback function that is called whenever a message is received        
-        print("Received lidar message", msg.header.seq)
+        #print("Received lidar message", msg.header.seq)
             
         if self.sim_init == True:
             self.sim_time_offset = datetime.utcnow().timestamp()-msg.header.stamp
@@ -202,11 +221,11 @@ class LaptopPilot:
                 self.sim_init = False                                         
                 
             # self.sim_time_offset is 0 if not a simulation. Deals with webots dealing in elapse timeself.sim_time_offset
-            print(
-                "Received position update from",
-                datetime.utcnow().timestamp() - msg[0] - self.sim_time_offset,
-                "seconds ago",
-            )
+            # print(
+            #     "Received position update from",
+            #     datetime.utcnow().timestamp() - msg[0] - self.sim_time_offset,
+            #     "seconds ago",
+            # )
             time_stamp = msg[0] + self.sim_time_offset                
 
         pose_msg = PoseStamped() 
@@ -217,9 +236,12 @@ class LaptopPilot:
         pose_msg.pose.position.z = 0
 
         quat = Quaternion()        
-        if self.simulation == False and aruco == True: quat.from_euler(0, 0, np.deg2rad(msg[6]))
-        else: quat.from_euler(0, 0, msg[6])
+        if self.simulation == False and aruco == True:
+            quat.from_euler(0, 0, np.deg2rad(msg[6]))
+        else:
+            quat.from_euler(0, 0, msg[6])
         pose_msg.pose.orientation = quat        
+        
         return pose_msg
 
     # TRAJECTORY GENERATION
@@ -235,7 +257,7 @@ class LaptopPilot:
             self.path = TrajectoryGenerate(C[:,0], C[:,1])        
             
             # set trajectory variables (velocity, acceleration and turning arc radius)
-            self.path.path_to_trajectory(self.max_velocity, self.max_acceleration)  # velocity and acceleration
+            self.path.path_to_trajectory(self.velocity, self.acceleration)  # velocity and acceleration
             self.path.turning_arcs(self.turning_radius)  # turning radius
             self.path.wp_id = 0  # initialises the next waypoint
 
@@ -259,36 +281,36 @@ class LaptopPilot:
             self.lidar_sub.stop()
             self.groundtruth_sub.stop()
             self.true_wheel_speed_sub.stop()
+        
+    # def extended_kalman_filter_predict(self, mu, Sigma, u, f, R, dt):
+    #     # (1) Project the state forward
+    #     # f is the rigid body motion model
+    #     pred_mu, F = f(mu, u, dt)
+    #     print("123")
+    #     # (2) Project the error forward: 
+    #     pred_Sigma = (F @ Sigma @ F.T) + R
+        
+    #     # Return the predicted state and the covariance
+    #     return pred_mu, pred_Sigma
 
-    def extended_kalman_filter_predict(self, mu, Sigma, u, f, R, dt):
-        # (1) Project the state forward
-        # f is the rigid body motion model
-        pred_mu, F = f(mu, u, dt)
+    # def extended_kalman_filter_update(self, mu, Sigma, z, h, Q, wrap_index = None):
         
-        # (2) Project the error forward: 
-        pred_Sigma = (F @ Sigma @ F.T) + R
-        
-        # Return the predicted state and the covariance
-        return pred_mu, pred_Sigma
-
-    def extended_kalman_filter_update(self, mu, Sigma, z, h, Q, wrap_index = None):
-        
-        # Prepare the estimated measurement
-        pred_z, H = h(mu)
+    #     # Prepare the estimated measurement
+    #     pred_z, H = h(mu)
     
-        # (3) Compute the Kalman gain
-        K = Sigma @ H.T @ np.linalg.inv(H @ Sigma @ H.T + Q)
+    #     # (3) Compute the Kalman gain
+    #     K = Sigma @ H.T @ np.linalg.inv(H @ Sigma @ H.T + Q)
         
-        # (4) Compute the updated state estimate
-        delta_z = z- pred_z        
-        if wrap_index != None: delta_z[wrap_index] = (delta_z[wrap_index] + np.pi) % (2 * np.pi) - np.pi    
-        cor_mu = mu + K @ (delta_z)
+    #     # (4) Compute the updated state estimate
+    #     delta_z = z- pred_z        
+    #     if wrap_index != None: delta_z[wrap_index] = (delta_z[wrap_index] + np.pi) % (2 * np.pi) - np.pi    
+    #     cor_mu = mu + K @ (delta_z)
 
-        # (5) Compute the updated state covariance
-        cor_Sigma = (np.eye(mu.shape[0], dtype=float) - K @ H) @ Sigma
+    #     # (5) Compute the updated state covariance
+    #     cor_Sigma = (np.eye(mu.shape[0], dtype=float) - K @ H) @ Sigma
         
-        # Return the state and the covariance
-        return cor_mu, cor_Sigma
+    #     # Return the state and the covariance
+    #     return cor_mu, cor_Sigma
 
 
     def motion_model(self, state, u, dt):
@@ -303,10 +325,10 @@ class LaptopPilot:
         p[self.N] = N_k_1
         p[self.E] = E_k_1
         p[self.G] = G_k_1
-        
+        print("yayayay")
         # note rigid_body_kinematics already handles the exception dynamics of w=0
         p = rigid_body_kinematics(p,u,dt)    
-
+        print("1212")
         # vertically joins two vectors together
         state = np.vstack((p, u))
         
@@ -315,7 +337,7 @@ class LaptopPilot:
         G_k = state[self.G]
         DOTX_k = state[self.DOTX]
         DOTG_k =  state[self.DOTG]
-
+        print("90")
         # Compute its jacobian
         F = Identity(5)    
 
@@ -338,167 +360,140 @@ class LaptopPilot:
         return state, F
 
 
-    def h_update(self,x):
+    def h_g_update(self,x):
         z = Vector(5)
         z[self.G] = x[self.G]
+        H = Matrix(5,5)
+        H[self.G,self.G] = 1
+        return z, H
+
+    def h_ne_update(self,x):
+        z = Vector(5)
         z[self.N] = x[self.N]
         z[self.E] = x[self.E]
         H = Matrix(5,5)
-        H[self.G,self.G] = 1
         H[self.N,self.N] = 1
         H[self.E,self.E] = 1
         return z, H
 
-
     def infinite_loop(self):
         # > Sense < #
         # get the latest position measurements
-        aruco_pose = self.aruco_driver.read()   
+        aruco_pose = self.aruco_driver.read()    
 
         if aruco_pose is not None:
             # reads sensed pose for local use 
-            print("aruco")
             msg = self.pose_parse(aruco_pose, aruco = True)
+            
             self.measured_pose_timestamp_s = msg.header.stamp
             self.measured_pose_northings_m = msg.pose.position.x
             self.measured_pose_eastings_m = msg.pose.position.y
             _, _, self.measured_pose_yaw_rad = msg.pose.orientation.to_euler()        
+            
             self.measured_pose_yaw_rad = self.measured_pose_yaw_rad % (np.pi*2) # manage angle wrapping
-
+            print("usadkb")
             # logs the data            
             self.datalog.log(msg, topic_name="/aruco")
-            self.aruco_ready = True
-            self.initial_aruco = True
+            #print(f"aruco={self.aruco_count}")
+            self.aruco_count += 1
+        
+        #if msg.vector.x is not None:
+          #  msg = self
+         #   self.measured_wheelrate_right = msg.vector.x
+        #    self.measured_wheelrate_left = msg.vector.y
 
+        
         ###### wait for the first sensor info to initialize the pose ######
-        if self.initialise_pose == True and self.initial_aruco == True:
+        if self.initialise_pose == True and aruco_pose is not None:
+            print('hello')
             self.state[self.N] = self.measured_pose_northings_m
             self.state[self.E] = self.measured_pose_eastings_m
             self.state[self.G] = self.measured_pose_yaw_rad
-            self.state[self.DOTX] = 0
-            self.state[self.DOTG] = 0
 
             print('State:')
             print(self.state)
-            self.covariance[self.N,self.N] = self.NE_std[0,0]**2
-            self.covariance[self.E, self.E] = self.NE_std[0,1]**2
-            self.covariance[self.G, self.G] = self.G_std[0]**2
-            self.covariance[self.DOTX, self.DOTX] = 0.0**2
-            self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
 
-            self.R[self.N, self.N] = 0.0**2
-            self.R[self.E, self.E] = 0.0**2
-            self.R[self.G, self.G] = np.deg2rad(0.0)**2
-            self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
-            self.R[self.DOTG, self.DOTG] = np.deg2rad(self.dot_g_R_std)**2
+            print('\nProcess noise covariance:')
 
             self.est_pose_northings_m = self.measured_pose_northings_m
             self.est_pose_eastings_m = self.measured_pose_eastings_m
             self.est_pose_yaw_rad = self.measured_pose_yaw_rad
 
             # get current time and determine timestep
-            self.last_timestamp = datetime.utcnow().timestamp() #initialise the time
+            self.t_prev = datetime.utcnow().timestamp() #initialise the time
             self.t = 0 #elapsed time
             time.sleep(0.1) #wait for approx a timestep before proceeding
+            print("aksbaksbka")
             # Generate trajectory after initializing pose
             self.generate_trajectory()
-            
             # path and trajectory are initialised
             self.initialise_pose = False 
-
-        if self.initialise_pose != True:  
-            # Get control input from wheel speeds
-            q = Vector(2)            
-            q[0] = self.measured_wheelrate_right
-            q[1] = self.measured_wheelrate_left
-            u = self.ddrive.fwd_kinematics(q) 
-
-            print("01")
-            
-            # Get current timestamp and calculate dt
-            current_time = datetime.utcnow().timestamp()
         
-            dt = current_time - self.last_timestamp
-                
-            self.last_timestamp = current_time
-            self.t += dt
-            print("02")
-            # EKF Predict Step
-            pred_state,  pred_covariance = self.extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
+        print(self.measured_wheelrate_left)
+        
+        if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
+            #print(self.measured_pose_northings_m)
+            #print(f"loop_={self.loop_count}")
+            print("11")
+            self.loop_count += 1
+            ################### Motion Model ##############################
+            # convert true wheel speeds in to twist
+            q = Vector(2)            
+            q[0] = self.measured_wheelrate_right # wheel rate rad/s (measured)
+            q[1] = self.measured_wheelrate_left # wheel rate rad/s (measured)
+            u = self.ddrive.fwd_kinematics(q) 
+            #determine the time step
+            t_now = datetime.utcnow().timestamp()        
+            print("12")
+            dt = t_now - self.t_prev #timestep from last estimate
+            self.t += dt #add to the elapsed time
+            self.t_prev = t_now #update the previous timestep for the next loop
+            print("12")
+            self.state , self.covariance  = extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
 
-            # Update state and covariance with prediction
-            self.state = pred_state
-            self.covariance = pred_covariance
+            z = Vector(5)
+            Q = Identity(5)
+            print("12")
+            h = self.h_ne_update
+            z[self.N] = self.measured_pose_northings_m
+            z[self.E] = self.measured_pose_eastings_m
+            z[self.G] = self.measured_pose_yaw_rad
+            #print("4")
 
-            ################### EKF Update ####################
-            if self.aruco_ready:
-                print("03")
-                # Measurement vector
-                z = Vector(5)  # Changed from 3 to 5 to match h_update
-                z[self.N] = self.measured_pose_northings_m
-                z[self.E] = self.measured_pose_eastings_m
-                z[self.G] = self.measured_pose_yaw_rad
-                z[self.DOTX] = 0  # No velocity measurement
-                z[self.DOTG] = 0  # No angular velocity measurement
+            Q[self.N, self.N] = self.NE_Q_std[0,0] ** 2
+            Q[self.E, self.E] = self.NE_Q_std[0,1] ** 2
+            Q[self.G, self.G] = self.g_Q_std[0] ** 2
+            #print(z)
+            
+            if aruco_pose is not None:
+                self.state , self.covariance  = extended_kalman_filter_update(self.state, self.covariance, z, h, Q)
 
-                # Create measurement noise matrix Q
-                Q = Matrix(5,5)
-                Q[self.N, self.N] = self.NE_Q_std[0,0] ** 2
-                Q[self.E, self.E] = self.NE_Q_std[0,1] ** 2
-                Q[self.G, self.G] = self.g_Q_std[0] ** 2
-                Q[self.DOTX, self.DOTX] = 1e6  # Large uncertainty for unmeasured states
-                Q[self.DOTG, self.DOTG] = 1e6  # Large uncertainty for unmeasured states
-
-                # Update step using EKF update function
-                self.state, self.covariance = self.extended_kalman_filter_update(
-                    self.state, 
-                    self.covariance,
-                    z,
-                    self.h_update,
-                    Q
-                )
-
-                self.aruco_ready = False
-
-            # Update estimated pose for control
-            self.est_pose_northings_m = self.state[self.N]
-            self.est_pose_eastings_m = self.state[self.E]
-            self.est_pose_yaw_rad = self.state[self.G] % (2 * np.pi)
-
-            print("04")
-            #################### Trajectory and Control #################################
+            # take current pose estimate and update by twist
+            
+            self.est_pose_northings_m = self.state[self.N,0]
+            self.est_pose_eastings_m = self.state[self.E,0]
+            self.est_pose_yaw_rad = self.state[self.G,0]
+            
+            
+            #################### Trajectory sample #################################    
+            #if hasattr(self, 'path'):
             # feedforward control: check wp progress and sample reference trajectory
-            self.path.wp_progress(self.t, self.state, self.turning_radius)  # fill turning radius
-            print("04.1")
+            self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
             p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
-
             #SHOW 
             #self.est_pose_northings_m = p_ref[0,0]
             #self.est_pose_eastings_m = p_ref[1,0]
             #self.est_pose_yaw_rad = p_ref[2,0]
-
-            print("05")
+            #print("5")
 
             # feedback control: get pose change to desired trajectory from body
             dp = Vector(3)  # Create vector for pose difference in e-frame
-            #print shape of p_ref and self.state
-
-            #dp = p_ref - self.state  # Northings difference
-            dp[0] = p_ref[0] - self.state[0]
-            dp[1] = p_ref[1] - self.state[1]
-            dp[2] = p_ref[2] - self.state[2]
-
-            print("05.0")
-            dp[2] = (p_ref[2] - self.state[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
-
-            print("05.1")
+            dp = p_ref - self.state[:3]  # Northings difference
+            dp[2] = (dp[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
 
             # Transform difference to body frame
-            H_eb = HomogeneousTransformation(self.state[0:2],self.state[2])  # body to earth transform
+            H_eb = HomogeneousTransformation(self.state[:3][0:2],self.state[:3][2])  # body to earth transform
             ds = Inverse(H_eb.H_R) @ dp 
-
-            print("06")
-
             if self.initialise_control == True:
                 # Initial gains when starting from rest
                 self.k_n = (2*(u_ref[0]))/(self.L**2)
@@ -510,7 +505,6 @@ class LaptopPilot:
 
             # total control - combine feedback and feedforward
             u = u_ref + du
-
             # ensure within performance limitations
             if u[0] > self.v_max: u[0] = self.v_max
             if u[0] < -self.v_max: u[0] = -self.v_max
@@ -523,8 +517,7 @@ class LaptopPilot:
 
             # actuator commands                 
             q = self.ddrive.inv_kinematics(u)            
-            print(f"q: {q}")
-            
+            #print(f"q: {q}")
             wheel_speed_msg = Vector3Stamped()
             wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
             wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
