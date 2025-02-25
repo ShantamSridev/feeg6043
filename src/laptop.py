@@ -1,10 +1,3 @@
-"""
-Copyright (c) 2023 The uos_sess6072_build Authors.
-Authors: Miquel Massot, Blair Thornton, Sam Fenton
-All rights reserved.
-Licensed under the BSD 3-Clause License.
-See LICENSE.md file in the project root for full license information.
-"""
 import numpy as np
 import argparse
 from datetime import datetime
@@ -40,24 +33,28 @@ class LaptopPilot:
         self.aruco_driver = ArUcoUDPDriver(aruco_params, parent=self)
 
         ############# INITIALISE ATTRIBUTES ##########       
-        wheel_distance = 0.165
+        wheel_distance = 0.09
         wheel_diameter = 0.065
         
         # Trajectory parameters
-        self.max_velocity = 0.2  # meters per second
-        self.max_acceleration = 0.1  # meters per second^2
+        
+        self.velocity = 0.1
+        self.acceleration = self.velocity/3
+        
+        
         self.turning_radius = 0.3  # meters - minimum turning radius
         # control parameters        
 
         #GAIN VARIABLES
-        self.tau_s = 1 # s to remove along track error
-        self.L = 0.2 # m distance to remove normal and angular error
+        self.tau_s = 0.5 # s to remove along track error
+        self.L = 0.3 # m distance to remove normal and angular error
 
 
         # compute control gains for the initial condition (where robot is stationary)
         self.k_s = 1/self.tau_s  # along track gain
-        self.v_max = self.max_velocity # fastest the robot can go
-        self.w_max = np.deg2rad(30) # fastest the robot can turn
+        
+        self.v_max = 0.2 # fastest the robot can go
+        self.w_max = np.deg2rad(15) # fastest the robot can turn
 
         self.initialise_control = True # False once control gains is initialised 
         
@@ -66,8 +63,10 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        
+        
         self.relative_path = True # False if you want it to be absolute
 
         # model pose
@@ -111,6 +110,8 @@ class LaptopPilot:
         self.g_std = [np.deg2rad(1.0)]
         self.G_std = l2m(self.g_std)
         self.NE_std = l2m([self.n_std,self.e_std])
+        
+
 
         self.dot_x_R_std = l2m([0.02])
         self.dot_g_R_std = l2m([np.deg2rad(0.01)])
@@ -120,7 +121,20 @@ class LaptopPilot:
         self.state = Vector(5)
         self.covariance = Identity(5)
         self.R = Identity(5) 
-
+        
+        self.covariance[self.N,self.N] = self.NE_std[0,0]**2
+        self.covariance[self.E, self.E] = self.NE_std[0,1]**2
+        self.covariance[self.G, self.G] = self.G_std[0]**2
+        self.covariance[self.DOTX, self.DOTX] = 0.0**2
+        self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
+        
+        self.R[self.N, self.N] = 0.1**2
+        self.R[self.E, self.E] = 0.1**2
+        self.R[self.G, self.G] = np.deg2rad(5)**2
+        self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
+        self.R[self.DOTG, self.DOTG] = np.deg2rad(self.dot_g_R_std)**2
+        
+        
         self.datalog = DataLogger(log_dir="logs")
 
         # Wheels speeds in rad/s are encoded as a Vector3 with timestamp, 
@@ -231,7 +245,7 @@ class LaptopPilot:
             self.path = TrajectoryGenerate(C[:,0], C[:,1])        
             
             # set trajectory variables (velocity, acceleration and turning arc radius)
-            self.path.path_to_trajectory(self.max_velocity, self.max_acceleration)  # velocity and acceleration
+            self.path.path_to_trajectory(self.velocity, self.acceleration)  # velocity and acceleration
             self.path.turning_arcs(self.turning_radius)  # turning radius
             self.path.wp_id = 0  # initialises the next waypoint
 
@@ -358,60 +372,46 @@ class LaptopPilot:
         if aruco_pose is not None:
             # reads sensed pose for local use 
             msg = self.pose_parse(aruco_pose, aruco = True)
+            
             self.measured_pose_timestamp_s = msg.header.stamp
             self.measured_pose_northings_m = msg.pose.position.x
             self.measured_pose_eastings_m = msg.pose.position.y
             _, _, self.measured_pose_yaw_rad = msg.pose.orientation.to_euler()        
+            
             self.measured_pose_yaw_rad = self.measured_pose_yaw_rad % (np.pi*2) # manage angle wrapping
 
             # logs the data            
             self.datalog.log(msg, topic_name="/aruco")
 
 
-            ###### wait for the first sensor info to initialize the pose ######
-            if self.initialise_pose == True:
+        ###### wait for the first sensor info to initialize the pose ######
+        if self.initialise_pose == True and aruco_pose is not None:
+            
+            self.state[self.N] = self.measured_pose_northings_m
+            self.state[self.E] = self.measured_pose_eastings_m
+            self.state[self.G] = self.measured_pose_yaw_rad
 
-                self.state[self.N] = self.measured_pose_northings_m
-                self.state[self.E] = self.measured_pose_eastings_m
-                self.state[self.G] = self.measured_pose_yaw_rad
-                self.state[self.DOTX] = 0
-                self.state[self.DOTG] = 0
+            print('State:')
+            print(self.state)
 
-                print('State:')
-                print(self.state)
-                print("1")
-                self.covariance[self.N,self.N] = self.NE_std[0,0]**2
-                self.covariance[self.E, self.E] = self.NE_std[0,1]**2
-                self.covariance[self.G, self.G] = self.G_std[0]**2
-                self.covariance[self.DOTX, self.DOTX] = 0.0**2
-                self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
-                print("2")
+            print('\nProcess noise covariance:')
 
-                self.R[self.N, self.N] = 0.0**2
-                print("3")
-                self.R[self.E, self.E] = 0.0**2
-                self.R[self.G, self.G] = np.deg2rad(0.0)**2
-                self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
-                self.R[self.DOTG, self.DOTG] = np.deg2rad(self.dot_g_R_std)**2
+            self.est_pose_northings_m = self.measured_pose_northings_m
+            self.est_pose_eastings_m = self.measured_pose_eastings_m
+            self.est_pose_yaw_rad = self.measured_pose_yaw_rad
 
-                print('\nProcess noise covariance:')
-
-                self.est_pose_northings_m = self.measured_pose_northings_m
-                self.est_pose_eastings_m = self.measured_pose_eastings_m
-                self.est_pose_yaw_rad = self.measured_pose_yaw_rad
-
-                # get current time and determine timestep
-                self.t_prev = datetime.utcnow().timestamp() #initialise the time
-                self.t = 0 #elapsed time
-                time.sleep(0.1) #wait for approx a timestep before proceeding
-                
-                # Generate trajectory after initializing pose
-                self.generate_trajectory()
-                
-                # path and trajectory are initialised
-                self.initialise_pose = False 
+            # get current time and determine timestep
+            self.t_prev = datetime.utcnow().timestamp() #initialise the time
+            self.t = 0 #elapsed time
+            time.sleep(0.1) #wait for approx a timestep before proceeding
+            
+            # Generate trajectory after initializing pose
+            self.generate_trajectory()
+            # path and trajectory are initialised
+            self.initialise_pose = False 
 
         if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
+            print(self.measured_pose_northings_m)
             ################### Motion Model ##############################
             # convert true wheel speeds in to twist
             q = Vector(2)            
@@ -424,6 +424,7 @@ class LaptopPilot:
             dt = t_now - self.t_prev #timestep from last estimate
             self.t += dt #add to the elapsed time
             self.t_prev = t_now #update the previous timestep for the next loop
+            
             self.state , self.covariance  = self.extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
 
             z = Vector(5)
@@ -433,7 +434,7 @@ class LaptopPilot:
             z[self.N] = self.measured_pose_northings_m
             z[self.E] = self.measured_pose_eastings_m
             z[self.G] = self.measured_pose_yaw_rad
-            print("4")
+            #print("4")
 
             Q[self.N, self.N] = self.NE_Q_std[0,0] ** 2
             Q[self.E, self.E] = self.NE_Q_std[0,1] ** 2
@@ -442,46 +443,36 @@ class LaptopPilot:
             self.state , self.covariance  = self.extended_kalman_filter_update(self.state, self.covariance, z, h, Q)
 
             # take current pose estimate and update by twist
-            p_robot = Vector(3)
-            # p_robot[0,0] = self.est_pose_northings_m
-            # p_robot[1,0] = self.est_pose_eastings_m
-            # p_robot[2,0] = self.est_pose_yaw_rad
-            p_robot[0,0] = self.state[self.N]
-            p_robot[1,0] = self.state[self.E]
-            p_robot[2,0] = self.state[self.G]
-            p_robot[2] = p_robot[2] % (2 * np.pi)  # deal with angle wrapping          
-
-            # update for show_laptop.py            
-            self.est_pose_northings_m = p_robot[0,0]
-            self.est_pose_eastings_m = p_robot[1,0]
-            self.est_pose_yaw_rad = p_robot[2,0]
+            
+            self.est_pose_northings_m = self.state[self.N,0]
+            self.est_pose_eastings_m = self.state[self.E,0]
+            self.est_pose_yaw_rad = self.state[self.G,0]
+            
+            
             #################### Trajectory sample #################################    
             #if hasattr(self, 'path'):
             # feedforward control: check wp progress and sample reference trajectory
-            self.path.wp_progress(self.t, p_robot, self.turning_radius)  # fill turning radius
+            self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
             p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
             #SHOW 
-            self.est_pose_northings_m = p_ref[0,0]
-            self.est_pose_eastings_m = p_ref[1,0]
-            self.est_pose_yaw_rad = p_ref[2,0]
-            print("5")
+            #self.est_pose_northings_m = p_ref[0,0]
+            #self.est_pose_eastings_m = p_ref[1,0]
+            #self.est_pose_yaw_rad = p_ref[2,0]
+            #print("5")
 
             # feedback control: get pose change to desired trajectory from body
             dp = Vector(3)  # Create vector for pose difference in e-frame
-            dp = p_ref - p_robot  # Northings difference
+            dp = p_ref - self.state[:3]  # Northings difference
             dp[2] = (dp[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
 
             # Transform difference to body frame
-            H_eb = HomogeneousTransformation(p_robot[0:2],p_robot[2])  # body to earth transform
+            H_eb = HomogeneousTransformation(self.state[:3][0:2],self.state[:3][2])  # body to earth transform
             ds = Inverse(H_eb.H_R) @ dp 
             if self.initialise_control == True:
                 # Initial gains when starting from rest
                 self.k_n = (2*(u_ref[0]))/(self.L**2)
                 self.k_g = u_ref[0]/self.L # heading gain
                 self.initialise_control = False  # maths changes after first iteration
-
-
-
 
             # update the controls
             du = feedback_control(ds, self.k_s, self.k_n, self.k_g)
@@ -500,7 +491,7 @@ class LaptopPilot:
 
             # actuator commands                 
             q = self.ddrive.inv_kinematics(u)            
-            print(f"q: {q}")
+            #print(f"q: {q}")
             wheel_speed_msg = Vector3Stamped()
             wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
             wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
