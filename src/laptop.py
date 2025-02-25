@@ -141,6 +141,8 @@ class LaptopPilot:
         self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
         self.R[self.DOTG, self.DOTG] = np.deg2rad(self.dot_g_R_std)**2
         
+        self.aruco_count = 0
+        self.loop_count = 0
         
         self.datalog = DataLogger(log_dir="logs")
 
@@ -161,14 +163,14 @@ class LaptopPilot:
         )
                     
     def true_wheel_speeds_callback(self, msg):
-        print("Received sensed wheel speeds: R=", msg.vector.x,", L=", msg.vector.y)
+        #print("Received sensed wheel speeds: R=", msg.vector.x,", L=", msg.vector.y)
         self.measured_wheelrate_right = msg.vector.x
         self.measured_wheelrate_left = msg.vector.y
         self.datalog.log(msg, topic_name="/true_wheel_speeds")
 
     def lidar_callback(self, msg):
         # This is a callback function that is called whenever a message is received        
-        print("Received lidar message", msg.header.seq)
+        #print("Received lidar message", msg.header.seq)
             
         if self.sim_init == True:
             self.sim_time_offset = datetime.utcnow().timestamp()-msg.header.stamp
@@ -219,11 +221,11 @@ class LaptopPilot:
                 self.sim_init = False                                         
                 
             # self.sim_time_offset is 0 if not a simulation. Deals with webots dealing in elapse timeself.sim_time_offset
-            print(
-                "Received position update from",
-                datetime.utcnow().timestamp() - msg[0] - self.sim_time_offset,
-                "seconds ago",
-            )
+            # print(
+            #     "Received position update from",
+            #     datetime.utcnow().timestamp() - msg[0] - self.sim_time_offset,
+            #     "seconds ago",
+            # )
             time_stamp = msg[0] + self.sim_time_offset                
 
         pose_msg = PoseStamped() 
@@ -234,9 +236,12 @@ class LaptopPilot:
         pose_msg.pose.position.z = 0
 
         quat = Quaternion()        
-        if self.simulation == False and aruco == True: quat.from_euler(0, 0, np.deg2rad(msg[6]))
-        else: quat.from_euler(0, 0, msg[6])
+        if self.simulation == False and aruco == True:
+            quat.from_euler(0, 0, np.deg2rad(msg[6]))
+        else:
+            quat.from_euler(0, 0, msg[6])
         pose_msg.pose.orientation = quat        
+        
         return pose_msg
 
     # TRAJECTORY GENERATION
@@ -389,11 +394,13 @@ class LaptopPilot:
 
             # logs the data            
             self.datalog.log(msg, topic_name="/aruco")
+            #print(f"aruco={self.aruco_count}")
+            self.aruco_count += 1
 
 
         ###### wait for the first sensor info to initialize the pose ######
         if self.initialise_pose == True and aruco_pose is not None:
-            
+            print('hello')
             self.state[self.N] = self.measured_pose_northings_m
             self.state[self.E] = self.measured_pose_eastings_m
             self.state[self.G] = self.measured_pose_yaw_rad
@@ -418,7 +425,9 @@ class LaptopPilot:
             self.initialise_pose = False 
 
         if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
-            print(self.measured_pose_northings_m)
+            #print(self.measured_pose_northings_m)
+            #print(f"loop_={self.loop_count}")
+            self.loop_count += 1
             ################### Motion Model ##############################
             # convert true wheel speeds in to twist
             q = Vector(2)            
@@ -446,8 +455,10 @@ class LaptopPilot:
             Q[self.N, self.N] = self.NE_Q_std[0,0] ** 2
             Q[self.E, self.E] = self.NE_Q_std[0,1] ** 2
             Q[self.G, self.G] = self.g_Q_std[0] ** 2
-                
-            self.state , self.covariance  = self.extended_kalman_filter_update(self.state, self.covariance, z, h, Q)
+            #print(z)
+            
+            if aruco_pose is not None:
+                self.state , self.covariance  = self.extended_kalman_filter_update(self.state, self.covariance, z, h, Q)
 
             # take current pose estimate and update by twist
             
