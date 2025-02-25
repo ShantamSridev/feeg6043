@@ -470,7 +470,7 @@ class LaptopPilot:
             # feedforward control: check wp progress and sample reference trajectory
             self.path.wp_progress(self.t, self.state, self.turning_radius)  # fill turning radius
             print("04.1")
-            p_ref1, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
+            p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
 
             #SHOW 
             self.est_pose_northings_m = p_ref[0,0]
@@ -481,16 +481,13 @@ class LaptopPilot:
 
             # feedback control: get pose change to desired trajectory from body
             dp = Vector(3)  # Create vector for pose difference in e-frame
-            p_ref = Vector(5)
-            p_ref[0] = p_ref1[0]
-            p_ref[1] = p_ref1[1]
-            p_ref[2] = p_ref1[2]    
-            p_ref[3] = 0
-            p_ref[4] = 0
             #print shape of p_ref and self.state
-            print(p_ref.shape)
-            print(self.state.shape)
-            dp = p_ref - self.state  # Northings difference
+
+            #dp = p_ref - self.state  # Northings difference
+            dp[0] = p_ref[0] - self.state[0]
+            dp[1] = p_ref[1] - self.state[1]
+            dp[2] = p_ref[2] - self.state[2]
+
             print("05.0")
             dp[2] = (p_ref[2] - self.state[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
 
