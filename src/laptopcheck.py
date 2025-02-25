@@ -88,6 +88,7 @@ class LaptopPilot:
         # wheel speed commands
         self.cmd_wheelrate_right = None
         self.cmd_wheelrate_left = None 
+        self.x = False
 
         # encoder/actual wheel speeds
         self.measured_wheelrate_right = None
@@ -220,11 +221,11 @@ class LaptopPilot:
                 self.sim_init = False                                         
                 
             # self.sim_time_offset is 0 if not a simulation. Deals with webots dealing in elapse timeself.sim_time_offset
-            print(
-                "Received position update from",
-                datetime.utcnow().timestamp() - msg[0] - self.sim_time_offset,
-                "seconds ago",
-            )
+            # print(
+            #     "Received position update from",
+            #     datetime.utcnow().timestamp() - msg[0] - self.sim_time_offset,
+            #     "seconds ago",
+            # )
             time_stamp = msg[0] + self.sim_time_offset                
 
         pose_msg = PoseStamped() 
@@ -321,10 +322,10 @@ class LaptopPilot:
         p[self.N] = N_k_1
         p[self.E] = E_k_1
         p[self.G] = G_k_1
-        print("yayayay")
+        #print("yayayay")
         # note rigid_body_kinematics already handles the exception dynamics of w=0
         p = rigid_body_kinematics(p,u,dt)    
-        print("1212")
+        #print("1212")
         # vertically joins two vectors together
         state = np.vstack((p, u))
         
@@ -333,7 +334,7 @@ class LaptopPilot:
         G_k = state[self.G]
         DOTX_k = state[self.DOTX]
         DOTG_k =  state[self.DOTG]
-        print("90")
+        #print("90")
         # Compute its jacobian
         F = Identity(5)    
 
@@ -371,7 +372,7 @@ class LaptopPilot:
         H[self.N,self.N] = 1
         H[self.E,self.E] = 1
         return z, H
-    self.x = False
+
     def infinite_loop(self):
         # > Sense < #
         # get the latest position measurements
@@ -387,7 +388,7 @@ class LaptopPilot:
             _, _, self.measured_pose_yaw_rad = msg.pose.orientation.to_euler()        
             
             self.measured_pose_yaw_rad = self.measured_pose_yaw_rad % (np.pi*2) # manage angle wrapping
-            print("usadkb")
+            #print("usadkb")
             # logs the data            
             self.datalog.log(msg, topic_name="/aruco")
             #print(f"aruco={self.aruco_count}")
@@ -395,25 +396,24 @@ class LaptopPilot:
             self.aruco_ready = True
 
         if (self.x==False):
-            self.measured_pose_timestamp_s = msg.header.stamp
+            self.measured_pose_timestamp_s = 1739821556.160653
             self.measured_pose_northings_m = 0
-            self.measured_pose_eastings_m = 0
-            _, _, self.measured_pose_yaw_rad = msg.pose.orientation.to_euler()        
+            self.measured_pose_eastings_m = 0       
             
-            self.measured_pose_yaw_rad = self.measured_pose_yaw_rad % (np.pi*2) # manage angle wrapping
+            self.measured_pose_yaw_rad = 0
             self.x = True
 
         ###### wait for the first sensor info to initialize the pose ######
         if self.initialise_pose == True and self.x == True:
-            print('hello')
+            #print('hello')
             self.state[self.N] = self.measured_pose_northings_m
             self.state[self.E] = self.measured_pose_eastings_m
             self.state[self.G] = self.measured_pose_yaw_rad
 
-            print('State:')
-            print(self.state)
+            #print('State:')
+            #print(self.state)
 
-            print('\nProcess noise covariance:')
+            #print('\nProcess noise covariance:')
 
             self.est_pose_northings_m = self.measured_pose_northings_m
             self.est_pose_eastings_m = self.measured_pose_eastings_m
@@ -423,19 +423,19 @@ class LaptopPilot:
             self.t_prev = datetime.utcnow().timestamp() #initialise the time
             self.t = 0 #elapsed time
             time.sleep(0.1) #wait for approx a timestep before proceeding
-            print("aksbaksbka")
+            #print("aksbaksbka")
             # Generate trajectory after initializing pose
             self.generate_trajectory()
             # path and trajectory are initialised
             self.initialise_pose = False 
         
         print(self.measured_wheelrate_left)
-        print(aruco_pose)
+        #print(aruco_pose)
         
         if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
             #print(self.measured_pose_northings_m)
             #print(f"loop_={self.loop_count}")
-            print("11")
+            #print("11")
             self.loop_count += 1
             ################### Motion Model ##############################
             # convert true wheel speeds in to twist
@@ -445,16 +445,16 @@ class LaptopPilot:
             u = self.ddrive.fwd_kinematics(q) 
             #determine the time step
             t_now = datetime.utcnow().timestamp()        
-            print("12")
+            #print("12")
             dt = t_now - self.t_prev #timestep from last estimate
             self.t += dt #add to the elapsed time
             self.t_prev = t_now #update the previous timestep for the next loop
-            print("12")
+            #print("12")
             self.state , self.covariance  = self.extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
 
             z = Vector(5)
             Q = Identity(5)
-            print("12")
+            #print("12")
             h = self.h_ne_update
             z[self.N] = self.measured_pose_northings_m
             z[self.E] = self.measured_pose_eastings_m
