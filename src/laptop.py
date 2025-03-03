@@ -467,7 +467,8 @@ class LaptopPilot:
             self.est_pose_eastings_m = self.state[self.E,0]
             self.est_pose_yaw_rad = self.state[self.G,0]
             
-            
+            msg = self.pose_parse([datetime.utcnow().timestamp(), self.est_pose_northings_m, self.est_pose_eastings_m, 0, 0, 0, self.est_pose_yaw_rad])
+            self.datalog.log(msg, topic_name="/est_pose")
             #################### Trajectory sample #################################
 
             # feedforward control: check wp progress and sample reference trajectory
