@@ -103,9 +103,8 @@ class LaptopPilot:
         lidar_yb = 0.0 # location of lidar centre in b-frame secondary axis
         self.lidar = RangeAngleKinematics(lidar_xb,lidar_yb)    
 
+
         # EKF 
-
-
         # Easy names for indexing
         self.N = 0
         self.E = 1
@@ -113,18 +112,21 @@ class LaptopPilot:
         self.DOTX = 3
         self.DOTG = 4
 
+        #INITIAL STD DEVIATIONS ############################################
         self.n_std = [1.0]
         self.e_std = [1.0]
         self.g_std = [np.deg2rad(1.0)]
+
+
         self.G_std = l2m(self.g_std)
         self.NE_std = l2m([self.n_std,self.e_std])
         
+        
 
-
-        self.dot_x_R_std = l2m([0.02])
-        self.dot_g_R_std = l2m([np.deg2rad(0.01)])
-        self.NE_Q_std = l2m([[0.1],[0.1]])
-        self.g_Q_std = l2m([np.deg2rad(1)])
+        #MEASUREMENT NOISES ############################################
+        #From ARUCO
+        self.NE_Q_std = l2m([[0.1],[0.1]]) # Standard deviation of the northings and eastings noise
+        self.g_Q_std = l2m([np.deg2rad(1)])  # Standard deviation of the yaw noise
 
         self.state = Vector(5)
         self.covariance = Identity(5)
@@ -136,9 +138,18 @@ class LaptopPilot:
         self.covariance[self.DOTX, self.DOTX] = 0.0**2
         self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
         
-        self.R[self.N, self.N] = 0.1**2
-        self.R[self.E, self.E] = 0.1**2
-        self.R[self.G, self.G] = np.deg2rad(5)**2
+        #PROCESS NOISES ############################################
+        #From the motion model
+        self.R_N = 0.1 # Standard deviation of the northings noise
+        self.R_E = 0.1 # Standard deviation of the eastings noise
+        self.R_G = np.deg2rad(5) # Standard deviation of the yaw noise
+        self.dot_x_R_std = l2m([0.02]) # Standard deviation of the velocity noise
+        self.dot_g_R_std = l2m([np.deg2rad(0.01)]) # Standard deviation of the angular rate noise
+
+
+        self.R[self.N, self.N] = self.R_N**2
+        self.R[self.E, self.E] = self.R_E**2
+        self.R[self.G, self.G] = self.R_G**2
         self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
         self.R[self.DOTG, self.DOTG] = np.deg2rad(self.dot_g_R_std)**2
         
