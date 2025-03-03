@@ -126,11 +126,11 @@ class LaptopPilot:
         # Particle Filter Initialization
         self.N_particles = 150  # Number of particles (tune as needed)
         self.particles = Particles(self.N_particles)
-        initialise_particle_distribution(self.particles, centre=[0, 0], radius=0.5, heading=0) #initialize particles
-        self.process_noise = [0.01, 0.01, np.deg2rad(2)]  # Process noise for [x, y, yaw] (tune as needed)
-        self.measurement_noise = [0.01, 0.01, np.deg2rad(2)]  # Measurement noise for [x, y, yaw] (tune as needed)
+        initialise_particle_distribution(self.particles, centre=[0, 0], radius=0.25, heading=0) #initialize particles
+        self.process_noise = [0.1**2, 0.1**2, np.deg2rad(5)**2]  # Process noise for [x, y, yaw] (tune as needed)
+        self.measurement_noise = [0.01, 0.01, np.deg2rad(5)]  # Measurement noise for [x, y, yaw] (tune as needed)
         self.resample_threshold = 0.5 * self.N_particles  # Resampling threshold (tune as needed)
-        self.jitter = [0.05, 0.05, 0.02]  # Jitter for resampling (tune as needed)
+        self.jitter = 0.05
         self.sigma_resolution = 0.5  # KDE resolution (tune as needed)
         self.sampling_resolution = 100  # KDE sampling resolution (tune as needed)
 
@@ -264,19 +264,14 @@ class LaptopPilot:
             self.true_wheel_speed_sub.stop()
 
     def infinite_loop(self):
-        """Main control loop
 
-        Your code should go here.
-        """
         ################### Motion Model ##############################
         # convert true wheel speeds in to twist
-        q = Vector(2)
-        # wheel rate rad/s (measured)           
+        q = Vector(2)    
         q[0] = self.measured_wheelrate_right
-        # wheel rate rad/s (measured)
         q[1] = self.measured_wheelrate_left
         u = self.ddrive.fwd_kinematics(q)
-        #print('twist',u)        
+       
         # > Sense < #
         # get the latest position measurements
         aruco_pose = self.aruco_driver.read()    
@@ -333,8 +328,10 @@ class LaptopPilot:
 
             # Particle Filter Prediction
             discrete_motion_model(self.particles, self.est_pose_yaw_rad, u, dt, self.process_noise)
+            
+        
 
-            if aruco_pose is not None and not self.simulation: #Only do measurement update if there is aruco data, and not in simulation.
+            if aruco_pose is not None: 
                 # Measurement Update
                 measurement = Measurement()
                 measurement.northings = self.measured_pose_northings_m
@@ -344,11 +341,18 @@ class LaptopPilot:
                 measurement.gamma = self.measured_pose_yaw_rad
                 measurement.gamma_std = self.measurement_noise[2]  # Tune noise
 
+                print("hello 1")
+
                 pf_update(self.particles, measurement)
+
+                print("hello 2")
 
                 # Resampling
                 if neff(self.particles) < self.resample_threshold:
+                    print("hello 3")
                     pf_resample(self.particles, self.jitter)
+
+                print("hello 4")
 
             # State Estimation
             est_northings, est_eastings = kde_probability(self.particles, sigma_resolution=self.sigma_resolution, sampling_resolution=self.sampling_resolution)
@@ -362,7 +366,6 @@ class LaptopPilot:
             p_robot[1, 0] = self.est_pose_eastings_m
             p_robot[2, 0] = self.est_pose_yaw_rad
 
-            #<parse and log /est_pose>
             # logs the data            
             msg = self.pose_parse([datetime.utcnow().timestamp(),self.est_pose_northings_m,self.est_pose_eastings_m,0,0,0,self.est_pose_yaw_rad])
             self.datalog.log(msg, topic_name="/est_pose")
@@ -373,8 +376,6 @@ class LaptopPilot:
             # feedforward control: check wp progress and sample reference trajectory
             self.path.wp_progress(self.t, p_robot, self.turning_radius) # fill turning radius
             p_ref, u_ref = self.path.p_u_sample(self.t) #sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
-            
-            #u_ref = self.path.p_u_sample(self.t) #sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
         
             # feedback control: get pose change to desired trajectory from body
             dp = p_ref - p_robot #compute difference between reference and estimated pose in the $e$-frame
@@ -411,17 +412,7 @@ class LaptopPilot:
         # > Think < #
         ################################################################################
         #  TODO: Implement your state estimation
-#        if (self.measured_pose_northings_m != None):
- #           self.est_pose_northings_m = self.measured_pose_northings_m
-#            self.est_pose_eastings_m = self.measured_pose_eastings_m
- #           self.est_pose_yaw_rad = self.measured_pose_yaw_rad
- #       else:
- #           self.est_pose_northings_m = 0
- #           self.est_pose_eastings_m = 0
- #           self.est_pose_yaw_rad = 0
-        
-        # msg = self.pose_parse([datetime.utcnow().timestamp(),self.est_pose_northings_m,self.est_pose_eastings_m,0,0,0,self.est_pose_yaw_rad])
-        # self.datalog.log(msg, topic_name="/est_pose")
+
         ################################################################################
         #  TODO: Implement your controller here                                        #
 
