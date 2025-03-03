@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
-from math_feeg6043 import Vector,Matrix,Identity,Transpose,Inverse,v2t,t2v,HomogeneousTransformation, polar2cartesian,gaussian
+from math_feeg6043 import Vector,Matrix,Identity,Transpose,Inverse,v2t,t2v,HomogeneousTransformation, polar2cartesian,gaussian, eigsorted
 import matplotlib.patches as patches
+import matplotlib as mpl
 import numpy as np
 from scipy.stats import multivariate_normal
 from matplotlib import pyplot as plt
@@ -373,7 +374,6 @@ class plot_2dframe:
         plt.axis('equal')
         plt.ylabel('Northings, m'); plt.xlabel('Eastings, m')
 
-
 def plot_path(P, legend_flag = True, trackline_flag = True, verbose = False):
 # Function cycles through the entire path, create a homogeneous matrix for each entry and plot all the poses using a for loop    
     for i in range(len(P)-1):
@@ -393,7 +393,6 @@ def plot_path(P, legend_flag = True, trackline_flag = True, verbose = False):
     H_eb = HomogeneousTransformation(P[[0],0:2].T,P[0,2])
     H_eb_ = HomogeneousTransformation(P[[-1],0:2].T,P[-1,2])
     plot_2dframe(['pose_ends','Start','End'],[H_eb.H,H_eb_.H],False,legend_flag)
-        
 
 def plot_zero_order(t,u, c = None,label = None):
     # plotting function for control sequence with zero order steps between commands
@@ -498,10 +497,7 @@ def plot_trajectory(s, arc_radius = None, t_ref = None, p_ref = None, u_ref = No
                                 
     plt.axis('equal')
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-
-    
-
-
+	
 def plot_1d_gauss(m,s,x=np.arange(-5,5,0.05),c='b'):
 # Plot the curves and shade between +/- sigma     
     plt.plot(x,gaussian(m, s, x),c,linewidth=3, 
@@ -689,38 +685,42 @@ def plot_gaussians_through_functions(x,fx,pd_in,function_label,ax_range=[-2, 2],
 
 
 
-def plot_kalman(mu1, Sigma1, mu2, Sigma2, x, ylim, z=None, C=None, Q=None): 
+def plot_kalman(mu1, Sigma1, mu2, Sigma2, x, xlim, ylim, z=None, C=None, Q=None): 
 
     plt.rcParams["figure.figsize"] = (3,2) #make plots look nice
     plt.rcParams["figure.dpi"] = 300 #make plots look nice
     plt.rcParams['font.size'] = 12 #return to normal
     # note Sigma is the covariance and the gaussian function implemented here is for the standard deviation (i.e., sqrt(cov))
     if z is None:
+                
 
         plt.plot(x,gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), x),'k',linewidth=3, alpha=1, label ='Previous state')
         roi = np.arange(-np.sqrt(Sigma1[0,0])+mu1[0,0], np.sqrt(Sigma1[0,0])+mu1[0,0], 0.05)
-        plt.fill_between(roi,gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), roi),color='k',alpha=0.1)
-        plt.plot([mu1[0,0],mu1[0,0]],[0, gaussian(mu1[0,0], Sigma1[0,0], mu1[0,0])],color='k',linewidth=2,linestyle='--', alpha=1,)
+        plt.fill_between(roi,gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), roi),color='k',alpha=0.1)   
+        
+        plt.plot([mu1[0,0],mu1[0,0]],[0, gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), mu1[0,0])],color='k',linewidth=2,linestyle='--', alpha=1,)
         plt.xlabel('x'); plt.ylabel('f(x)'); plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-        plt.ylim([ylim[0],ylim[1]])
+        plt.ylim([ylim[0],ylim[1]])        
+        plt.xlim([xlim[0],xlim[1]])                
         plt.show()    
 
         plt.plot(x,gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), x),'k',linewidth=2, alpha=0.2, label ='Previous state')
         roi = np.arange(-np.sqrt(Sigma1[0,0])+mu1[0,0], np.sqrt(Sigma1[0,0])+mu1[0,0], 0.05)
         plt.fill_between(roi,gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), roi),color='k',alpha=0.1)
-        plt.plot([mu1[0,0],mu1[0,0]],[0, gaussian(mu1[0,0], Sigma1[0,0], mu1[0,0])],color='k',linewidth=2,linestyle='--', alpha=0.3,)
+        plt.plot([mu1[0,0],mu1[0,0]],[0, gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), mu1[0,0])],color='k',linewidth=2,linestyle='--', alpha=0.3,)
         
         plt.plot(x,gaussian(mu2[0,0], np.sqrt(Sigma2[0,0]), x),'b',linewidth=3, label ='Prediction')        
         roi = np.arange(-np.sqrt(Sigma2[0,0])+mu2[0,0], np.sqrt(Sigma2[0,0])+mu2[0,0], 0.05)
         plt.fill_between(roi,gaussian(mu2[0,0], np.sqrt(Sigma2[0,0]), roi),color='b',alpha=0.1)
         plt.plot([mu2[0,0],mu2[0,0]],[0, gaussian(mu2[0,0], np.sqrt(Sigma2[0,0]), mu2[0,0])],color='b',linewidth=2,linestyle='--', alpha=1,)
+        plt.xlim([xlim[0],xlim[1]])                        
         
     else:
         plt.plot(x,gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), x),'k',linewidth=2, alpha=0.2, label ='Prediction')
         roi = np.arange(-np.sqrt(Sigma1[0,0])+mu1[0,0], np.sqrt(Sigma1[0,0])+mu1[0,0], 0.05)
         plt.fill_between(roi,gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), roi),color='k',alpha=0.1)
         plt.plot([mu1[0,0],mu1[0,0]],[0, gaussian(mu1[0,0], np.sqrt(Sigma1[0,0]), mu1[0,0])],color='k',linewidth=2,linestyle='--', alpha=0.3,)
-
+                  
         plt.plot(x,gaussian(1/C*z[0,0], np.sqrt(1/C*Q[0,0]*1/C), x),'g',linewidth=3, label ='Measurement')
         s=np.sqrt(1/C*Q[0,0]*1/C)
         m=1/C*z[0,0]
@@ -732,10 +732,175 @@ def plot_kalman(mu1, Sigma1, mu2, Sigma2, x, ylim, z=None, C=None, Q=None):
         roi = np.arange(-np.sqrt(Sigma2[0,0])+mu2[0,0], np.sqrt(Sigma2[0,0])+mu2[0,0], 0.05)
         plt.fill_between(roi,gaussian(mu2[0,0], np.sqrt(Sigma2[0,0]), roi),color='r',alpha=0.1)
         plt.plot([mu2[0,0],mu2[0,0]],[0, gaussian(mu2[0,0], np.sqrt(Sigma2[0,0]), mu2[0,0])],color='r',linewidth=2,linestyle='--', alpha=1,)
+        plt.xlim([xlim[0],xlim[1]])                        
         
 
     plt.xlabel('x'); plt.ylabel('f(x)'); plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.ylim([ylim[0],ylim[1]])
+    plt.xlim([xlim[0],xlim[1]])                    
 
     plt.show()
 
+
+def plot_EKF_trajectory(states, covariances, flip=False, measurements=None, keyframe = 50):
+    _ = plt.figure(figsize=(5, 5))
+    ax = plt.subplot(111, aspect="equal")
+    i = 0
+    for s in states:
+        if i % keyframe == 0:
+            j = len(s)                        
+            vals, vecs = eigsorted(covariances[i*j:i*j+2, 0:2])
+            theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+            if flip:
+                e = Ellipse(
+                    xy=(s[1], s[0]), width=vals[1], height=vals[0], angle=-theta
+                )
+            else:
+                e = Ellipse(
+                    xy=(s[0], s[1]), width=vals[0], height=vals[1], angle=theta
+                )
+            e.set_alpha(0.2)
+            e.set_facecolor("red")
+            ax.add_patch(e)
+        i += 1
+    xpos = [s[0] for s in states]
+    ypos = [s[1] for s in states]
+    if flip:
+        plt.plot(ypos, xpos, "bo-")
+    else:
+        plt.plot(xpos, ypos, "bo-")
+    plt.xlabel("Eastings (m)")
+    plt.ylabel("Northings (m)")
+    plt.axis("equal")
+
+    if measurements is not None:
+        for i in range(len(measurements[0])):
+            if not flip:
+                circle = plt.Circle(                    
+                    (measurements[0][i,0], measurements[0][i,1]), measurements[1][i,0], color="g"
+                )
+                circle.set_alpha(0.2)
+                ax = plt.gca()
+                ax.add_patch(circle)
+                plt.plot(measurements[0][i,0], measurements[0][i,1], "gx")
+            else:
+                circle = plt.Circle(
+                    (measurements[0][i,1], measurements[0][i,0]), measurements[1][i,0], color="g"
+                )
+                circle.set_alpha(0.2)
+                ax = plt.gca()
+                ax.add_patch(circle)
+                plt.plot(measurements[0][i,1], measurements[0][i,0], "gx")
+    plt.show()    
+    
+
+def plot_cumsum(a):
+    fig = plt.figure()
+    N = len(a)
+    cmap = mpl.colors.ListedColormap(
+        [[0.0, 0.4, 1.0], [0.0, 0.8, 1.0], [1.0, 0.8, 0.0], [1.0, 0.4, 0.0]]
+        * (int(N / 4) + 1)
+    )
+    cumsum = np.cumsum(np.asarray(a) / np.sum(a))
+    cumsum = np.insert(cumsum, 0, 0)
+
+    # fig = plt.figure(figsize=(6,3))
+    fig = plt.gcf()
+    ax = fig.add_axes([0.05, 0.475, 0.9, 0.15])
+    norm = mpl.colors.BoundaryNorm(cumsum, cmap.N)
+    bar = mpl.colorbar.ColorbarBase(
+        ax,
+        cmap=cmap,
+        norm=norm,
+        drawedges=False,
+        spacing="proportional",
+        orientation="horizontal",
+    )
+    if N > 10:
+        bar.set_ticks([])
+
+
+def plot_systematic_resample(a, random_number=None):
+    N = len(a)
+
+    cmap = mpl.colors.ListedColormap(
+        [[0.0, 0.4, 1.0], [0.0, 0.8, 1.0], [1.0, 0.8, 0.0], [1.0, 0.4, 0.0]]
+        * (int(N / 4) + 1)
+    )
+    cumsum = np.cumsum(np.asarray(a) / np.sum(a))
+    cumsum = np.insert(cumsum, 0, 0)
+
+    fig = plt.figure()
+    ax = plt.gcf().add_axes([0.05, 0.475, 0.9, 0.15])
+    norm = mpl.colors.BoundaryNorm(cumsum, cmap.N)
+    bar = mpl.colorbar.ColorbarBase(
+        ax,
+        cmap=cmap,
+        norm=norm,
+        drawedges=False,
+        spacing="proportional",
+        orientation="horizontal",
+    )
+    xs = np.linspace(0.0, 1.0 - 1.0 / N, N)
+    ax.vlines(xs, 0, 1, lw=2)
+
+    # make N subdivisions, and chose a random position within each one
+    if random_number is None:
+        random_number = random()
+    b = (random_number + np.array(range(N))) / N
+    plt.scatter(b, [0.5] * len(b), s=60, facecolor="k", edgecolor="k")
+    bar.set_ticks([])
+    plt.title("systematic resampling")
+
+
+
+def plot_pf_trajectory(estimates, past_northings, past_eastings, past_weights, position_list=None, past_neff=None):
+    stamp = [x[0] for x in estimates]
+    est_northings = [x[1] for x in estimates]
+    est_eastings = [x[2] for x in estimates]
+    northings_std = [x[3] for x in estimates]
+    eastings_std = [x[4] for x in estimates]
+    max_weight = np.max(past_weights, axis=1)
+
+    plt.figure(figsize=[8, 8])
+
+    mid = int(len(past_northings) / 2.0)
+    plt.plot(past_eastings[0], past_northings[0], 'r.', alpha=1, markersize=6, label='Particles')
+    plt.plot(past_eastings[round(mid/2)], past_northings[round(mid/2)], 'r.', alpha=1, markersize=6)
+    plt.plot(past_eastings[mid], past_northings[mid], 'r.', alpha=1, markersize=6)
+    plt.plot(past_eastings[round(mid/2)+mid], past_northings[round(mid/2)+mid], 'r.', alpha=1, markersize=6)    
+    plt.plot(past_eastings[-1], past_northings[-1], 'r.', alpha=1, markersize=6)
+    plt.plot(est_eastings, est_northings, "bo", markersize=8, markeredgewidth=0, label="KDE")
+    ax = plt.gca()
+    if position_list is not None:
+        for p in position_list:
+            e = Ellipse(xy=(p['eastings'], p['northings']), width=2*p['eastings_std'], height=2*p['northings_std'], angle=0)
+            e.set_alpha(0.3)
+            e.set_facecolor("green")
+            ax.add_patch(e)
+            plt.plot(p['eastings'], p['northings'], "gx")            
+            
+    plt.xlabel("Eastings (m)",fontsize=14); plt.ylabel("Northings (m)",fontsize=14)
+    plt.legend(); plt.axis('equal'); plt.show()
+
+    plt.figure(figsize=[8, 4])
+    plt.bar(past_eastings[0], past_weights[0], width=0.05, alpha=0.6, label='Init')
+    plt.bar(past_eastings[mid], past_weights[mid], width=0.05, alpha=0.6, label='Mid')
+    plt.bar(past_eastings[-1], past_weights[-1], width=0.05, alpha=0.6, label='End')
+    plt.xlabel("Northings (m)",fontsize=14); plt.ylabel("Weights",fontsize=14)
+    plt.legend(); plt.show()
+
+    plt.figure(figsize=[8, 4])
+    plt.plot(stamp, northings_std, '.' , markersize=12,label='Northings')
+    plt.plot(stamp, eastings_std, '.', markersize=12,label='Eastings')
+    plt.xlabel("Time (s)",fontsize=14); plt.ylabel("Standard deviation (m)",fontsize=14)
+    plt.legend(); plt.show()
+    
+    if past_neff is None:
+        return
+    
+    plt.figure(figsize=[8, 4])
+    plt.plot(stamp, past_neff, label='NEFF')
+    plt.plot(stamp, [len(past_northings[0])/2]*len(stamp), "--", label="N/2")
+    plt.xlabel("Time (s)"); plt.ylabel("NEFF")
+    plt.legend(); plt.show()
