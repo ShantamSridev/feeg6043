@@ -14,8 +14,15 @@ from zeroros import Subscriber, Publisher
 from zeroros.messages import LaserScan, Vector3Stamped, Pose, PoseStamped, Header, Quaternion
 from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
-from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
-from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
+# add more libraries here
+from model_feeg6043 import ActuatorConfiguration
+from math_feeg6043 import Vector
+from model_feeg6043 import rigid_body_kinematics
+from model_feeg6043 import RangeAngleKinematics
+from model_feeg6043 import TrajectoryGenerate
+from math_feeg6043 import l2m
+from model_feeg6043 import feedback_control
+from math_feeg6043 import Inverse, HomogeneousTransformation
 
 
 class LaptopPilot:
@@ -377,7 +384,7 @@ class LaptopPilot:
         # > Sense < #
         # get the latest position measurements
         aruco_pose = self.aruco_driver.read()    
-
+        print("read")
         if aruco_pose is not None:
             # reads sensed pose for local use 
             msg = self.pose_parse(aruco_pose, aruco = True)
@@ -502,6 +509,8 @@ class LaptopPilot:
 
             # update the controls
             du = feedback_control(ds, self.k_s, self.k_n, self.k_g)
+            # update the controls
+            du = feedback_control(ds, self.k_s, self.k_n, self.k_g)
 
             # total control - combine feedback and feedforward
             u = u_ref + du
@@ -511,6 +520,9 @@ class LaptopPilot:
             if u[1] > self.w_max: u[1] = self.w_max
             if u[1] < -self.w_max: u[1] = -self.w_max
 
+            # update control gains for next timestep
+            self.k_n = (2*u[0])/(self.L**2) # cross track gain
+            self.k_g = u[0]/self.L  # heading gain
             # update control gains for next timestep
             self.k_n = (2*u[0])/(self.L**2) # cross track gain
             self.k_g = u[0]/self.L  # heading gain
