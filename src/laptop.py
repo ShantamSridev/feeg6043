@@ -146,6 +146,10 @@ class LaptopPilot:
         self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
         
         #PROCESS NOISES ############################################
+
+        self.param_names = ["R_N", "R_E", "R_G", "dot_x", "dot_g"]
+        self.current_factor_index = None
+
         #From the motion model
         self.R_N = 0.1 # Standard deviation of the northings noise
         self.R_E = 0.1 # Standard deviation of the eastings noise
@@ -306,7 +310,6 @@ class LaptopPilot:
         pose_msg.pose.orientation = quat        
         
         return pose_msg
-
     # TRAJECTORY GENERATION
     def generate_trajectory(self):
         # pick waypoints as current pose relative or absolute northings and eastings
@@ -375,7 +378,6 @@ class LaptopPilot:
         # Return the state and the covariance
         return cor_mu, cor_Sigma
 
-
     def motion_model(self, state, u, dt):
             
         N_k_1 = state[self.N]
@@ -412,7 +414,7 @@ class LaptopPilot:
             F[self.G, self.DOTG] = dt     
             
         else:
-            F[self.N, self.G] = (DOTG_k/DOTG_k)*(np.cos(G_k)-np.cos(G_k_1))
+            F[self.N, self.G] = (DOTX_k/DOTG_k)*(np.cos(G_k)-np.cos(G_k_1))
             F[self.N, self.DOTX] = (1/DOTG_k)*(np.sin(G_k)-np.sin(G_k_1))
             F[self.N, self.DOTG] = (DOTX_k/(DOTG_k**2))*(np.sin(G_k_1)-np.sin(G_k))+(DOTX_k*dt/DOTG_k)*np.cos(G_k)
             F[self.E, self.G] = (DOTX_k/DOTG_k)*(np.sin(G_k)-np.sin(G_k_1))
@@ -421,7 +423,6 @@ class LaptopPilot:
             F[self.G, self.DOTG] = dt
 
         return state, F
-
 
     def h_g_update(self,x):
         z = Vector(5)
@@ -507,6 +508,17 @@ class LaptopPilot:
             R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
             print("LOOP COUNTER: ",self.loop_count, t_now)
             print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
+            
+            # factor_index = self.loop_count // 6
+            # param_name = self.param_names[factor_index]
+            # # If we just moved to a new parameter block, create a new DataLogger
+            # if factor_index != self.current_factor_index:
+            #     # Close out the old logger if needed (DataLogger may or may not support an explicit close)
+            #     # If there's no close() method, you can just let it go, or create a new instance.
+
+            #     # Now create a brand-new logger with a unique directory:
+            #     self.datalog = DataLogger(log_dir=f"logs_{param_name}")
+            #     self.current_factor_index = factor_index
 
             # Assign these values to your pilot’s process noise:
             self.R_N = R_N
