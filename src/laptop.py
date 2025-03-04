@@ -71,8 +71,8 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        self.eastings_path =  [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
         
         
         self.relative_path = True # False if you want it to be absolute
@@ -173,7 +173,66 @@ class LaptopPilot:
         self.groundtruth_sub = Subscriber(
             "/groundtruth", Pose, self.groundtruth_callback, ip=self.robot_ip
         )
-                    
+
+    def cycle_params(self, loop_count):
+        """
+        Cycles through five parameters (R_N, R_E, R_G, dot_x, dot_g),
+        each with three test values, running each value for two loops
+        before moving on.
+
+        Total loops covered = 5 parameters * 3 values * 2 loops = 30.
+
+        :param loop_count: int, current loop index (0 <= loop_count < 30)
+        :return: (R_N, R_E, R_G, dot_x, dot_g) for this loop.
+        """
+
+        # 1) Nominal (middle-ground) values
+        R_N_nom   = 0.05                     # 5 cm stdev in northing
+        R_E_nom   = 0.05                     # 5 cm stdev in easting
+        R_G_nom   = np.deg2rad(3)            # 3 deg stdev in heading
+        dot_x_nom = 0.01                     # 0.01 m/s stdev for linear velocity
+        dot_g_nom = np.deg2rad(0.01)         # 0.01 deg/s in radians/s for angular rate
+
+        # 2) Three test values for each parameter
+        R_N_vals   = [0.01, 0.05, 0.1]                       # low, nominal, high
+        R_E_vals   = [0.01, 0.05, 0.1]
+        R_G_vals   = [np.deg2rad(1), np.deg2rad(3), np.deg2rad(5)]
+        dot_x_vals = [0.005, 0.01, 0.02]
+        dot_g_vals = [np.deg2rad(0.005), np.deg2rad(0.01), np.deg2rad(0.02)]
+
+        # 3) Figure out which parameter and which of its values to use
+        #    - Each parameter gets 3 values, each tested for 2 loops → 3*2 = 6 loops per parameter
+        #    - We have 5 parameters total → 5*6 = 30 total loops
+        factor_index = loop_count // 6   # integer from 0..4, which parameter we’re testing
+        subloop = loop_count % 6         # 0..5, which sub-iteration within that parameter
+        value_index = subloop // 2       # 0..2, which value we’re on (three possible values)
+
+        # 4) Start with nominal values
+        R_N   = R_N_nom
+        R_E   = R_E_nom
+        R_G   = R_G_nom
+        dot_x = dot_x_nom
+        dot_g = dot_g_nom
+
+        # 5) Override exactly one parameter based on factor_index
+        if factor_index == 0:
+            # Testing R_N
+            R_N = R_N_vals[value_index]
+        elif factor_index == 1:
+            # Testing R_E
+            R_E = R_E_vals[value_index]
+        elif factor_index == 2:
+            # Testing R_G
+            R_G = R_G_vals[value_index]
+        elif factor_index == 3:
+            # Testing dot_x
+            dot_x = dot_x_vals[value_index]
+        elif factor_index == 4:
+            # Testing dot_g
+            dot_g = dot_g_vals[value_index]
+
+        return R_N, R_E, R_G, dot_x, dot_g
+                        
     def true_wheel_speeds_callback(self, msg):
         #print("Received sensed wheel speeds: R=", msg.vector.x,", L=", msg.vector.y)
         self.measured_wheelrate_right = msg.vector.x
@@ -452,6 +511,22 @@ class LaptopPilot:
             dt = t_now - self.t_prev #timestep from last estimate
             self.t += dt #add to the elapsed time
             self.t_prev = t_now #update the previous timestep for the next loop
+
+            R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
+
+            # Assign these values to your pilot’s process noise:
+            self.R_N = R_N
+            self.R_E = R_E
+            self.R_G = R_G
+            self.dot_x_R_std = dot_x
+            self.dot_g_R_std = dot_g
+
+            # Now update self.R to use these values:
+            self.R[self.N, self.N] = self.R_N**2
+            self.R[self.E, self.E] = self.R_E**2
+            self.R[self.G, self.G] = (self.R_G)**2
+            self.R[self.DOTX, self.DOTX] = (self.dot_x_R_std)**2
+            self.R[self.DOTG, self.DOTG] = (self.dot_g_R_std)**2
             
             self.state , self.covariance  = self.extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
 
