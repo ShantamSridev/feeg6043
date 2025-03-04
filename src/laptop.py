@@ -71,21 +71,13 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        northings_segment = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
-                             0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
-                             0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
-                             0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
-                             0.0, 1.0, 1.0, 0.0]
+        northings_segment = [1.0, 1.0, 0.0, 0.0]
 
-        eastings_segment  = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
-                             0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
-                             0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
-                             0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
-                             0.0, 0.0, 1.0, 1.0]
+        eastings_segment  = [0.0, 1.0, 1.0, 0.0]
 
         # Now repeat 30 times:
-        self.northings_path = []
-        self.eastings_path  = []
+        self.northings_path = [0.0]
+        self.eastings_path  = [0.0]
         for _ in range(30):
             self.northings_path.extend(northings_segment)
             self.eastings_path.extend(eastings_segment)
@@ -190,46 +182,31 @@ class LaptopPilot:
         )
 
     def cycle_params(self, loop_count):
-        """
-        Cycles through five parameters (R_N, R_E, R_G, dot_x, dot_g),
-        each with three test values, running each value for two loops
-        before moving on.
 
-        Total loops covered = 5 parameters * 3 values * 2 loops = 30.
+        R_N_nom   = 0.05                     
+        R_E_nom   = 0.05                     
+        R_G_nom   = np.deg2rad(3)            
+        dot_x_nom = 0.01                     
+        dot_g_nom = np.deg2rad(0.01)         
 
-        :param loop_count: int, current loop index (0 <= loop_count < 30)
-        :return: (R_N, R_E, R_G, dot_x, dot_g) for this loop.
-        """
-
-        # 1) Nominal (middle-ground) values
-        R_N_nom   = 0.05                     # 5 cm stdev in northing
-        R_E_nom   = 0.05                     # 5 cm stdev in easting
-        R_G_nom   = np.deg2rad(3)            # 3 deg stdev in heading
-        dot_x_nom = 0.01                     # 0.01 m/s stdev for linear velocity
-        dot_g_nom = np.deg2rad(0.01)         # 0.01 deg/s in radians/s for angular rate
-
-        # 2) Three test values for each parameter
         R_N_vals   = [0.01, 0.05, 0.1]                       # low, nominal, high
         R_E_vals   = [0.01, 0.05, 0.1]
         R_G_vals   = [np.deg2rad(1), np.deg2rad(3), np.deg2rad(5)]
         dot_x_vals = [0.005, 0.01, 0.02]
         dot_g_vals = [np.deg2rad(0.005), np.deg2rad(0.01), np.deg2rad(0.02)]
 
-        # 3) Figure out which parameter and which of its values to use
-        #    - Each parameter gets 3 values, each tested for 2 loops → 3*2 = 6 loops per parameter
-        #    - We have 5 parameters total → 5*6 = 30 total loops
-        factor_index = loop_count // 6   # integer from 0..4, which parameter we’re testing
-        subloop = loop_count % 6         # 0..5, which sub-iteration within that parameter
-        value_index = subloop // 2       # 0..2, which value we’re on (three possible values)
+        factor_index = loop_count // 6   
+        subloop = loop_count % 6         
+        value_index = subloop // 2       
 
-        # 4) Start with nominal values
+
         R_N   = R_N_nom
         R_E   = R_E_nom
         R_G   = R_G_nom
         dot_x = dot_x_nom
         dot_g = dot_g_nom
 
-        # 5) Override exactly one parameter based on factor_index
+
         if factor_index == 0:
             # Testing R_N
             R_N = R_N_vals[value_index]
@@ -528,6 +505,7 @@ class LaptopPilot:
             self.t_prev = t_now #update the previous timestep for the next loop
 
             R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
+            print("LOOP COUNTER: ",self.loop_count, t_now)
 
             # Assign these values to your pilot’s process noise:
             self.R_N = R_N
