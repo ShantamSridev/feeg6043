@@ -506,6 +506,7 @@ class LaptopPilot:
 
             R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
             print("LOOP COUNTER: ",self.loop_count, t_now)
+            print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
 
             # Assign these values to your pilot’s process noise:
             self.R_N = R_N
