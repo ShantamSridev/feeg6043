@@ -71,9 +71,24 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
-        self.eastings_path =  [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
-        
+        northings_segment = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
+                             0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
+                             0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
+                             0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0,
+                             0.0, 1.0, 1.0, 0.0]
+
+        eastings_segment  = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+                             0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+                             0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+                             0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+                             0.0, 0.0, 1.0, 1.0]
+
+        # Now repeat 30 times:
+        self.northings_path = []
+        self.eastings_path  = []
+        for _ in range(30):
+            self.northings_path.extend(northings_segment)
+            self.eastings_path.extend(eastings_segment)
         
         self.relative_path = True # False if you want it to be absolute
 
