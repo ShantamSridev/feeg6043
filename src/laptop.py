@@ -59,7 +59,7 @@ class LaptopPilot:
         self.k_s = 1/self.tau_s  # along track gain
         
         self.v_max = 0.2 # fastest the robot can go
-        self.w_max = np.deg2rad(15) # fastest the robot can turn
+        self.w_max = np.deg2rad(5) # fastest the robot can turn
 
 
 
