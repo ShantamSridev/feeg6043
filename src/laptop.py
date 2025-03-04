@@ -43,6 +43,9 @@ class LaptopPilot:
         wheel_distance = 0.09
         wheel_diameter = 0.07
         
+        self.loop_flag = False
+        self.infinite_flag = False
+        self.loop_count = 0
 
         # Trajectory parameters
         self.velocity = 0.1
@@ -78,7 +81,7 @@ class LaptopPilot:
         # Now repeat 30 times:
         self.northings_path = [0.0]
         self.eastings_path  = [0.0]
-        for _ in range(1):
+        for _ in range(2):
             self.northings_path.extend(northings_segment)
             self.eastings_path.extend(eastings_segment)
         
@@ -339,8 +342,8 @@ class LaptopPilot:
                     print("Time is up, stopping…")
                     break
 
-                flag = self.infinite_loop()
-                if flag == True:
+                self.infinite_flag = self.infinite_loop()
+                if self.infinite_flag == True:
                     print("PATH COMPLETED, UPDATING PARAMS")
                     
                     R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.run_count)
@@ -383,7 +386,7 @@ class LaptopPilot:
                     self.run_count += 1
 
                     self.initialise_pose = True
-                    flag = False
+                    self.infinite_flag = False
     
                 r.sleep()
         except KeyboardInterrupt:
@@ -612,7 +615,7 @@ class LaptopPilot:
             #################### Trajectory sample #################################
 
             # feedforward control: check wp progress and sample reference trajectory
-            flag = self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
+            self.loop_flag = self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
             p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
 
 
@@ -662,7 +665,7 @@ class LaptopPilot:
             # Send commands to the robot        
             self.wheel_speed_pub.publish(wheel_speed_msg)
             self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
-        return flag
+        return self.loop_flag
 
 
 if __name__ == "__main__":
