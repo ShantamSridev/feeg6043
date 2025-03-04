@@ -195,8 +195,8 @@ class LaptopPilot:
         R_N_nom   = 0.05                     
         R_E_nom   = 0.05                     
         R_G_nom   = np.deg2rad(3)            
-        dot_x_nom = 0.01                     
-        dot_g_nom = np.deg2rad(0.01)         
+        dot_x_nom = 0.05                     
+        dot_g_nom = np.deg2rad(0.05)         
 
         R_N_vals   = [0.01, 0.05, 0.1]                       # low, nominal, high
         R_E_vals   = [0.01, 0.05, 0.1]
@@ -390,7 +390,7 @@ class LaptopPilot:
                     self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
                     
                     print("FIFTEEN SECOND DELAY STARTING NOW")
-                    time.sleep(15)
+                    time.sleep(20)
                     self.run_count += 1
 
                     self.initialise_pose = True
