@@ -84,6 +84,8 @@ class LaptopPilot:
         for _ in range(2):
             self.northings_path.extend(northings_segment)
             self.eastings_path.extend(eastings_segment)
+
+        self.path1 = True
         
         self.relative_path = True # False if you want it to be absolute
 
@@ -158,7 +160,7 @@ class LaptopPilot:
         self.R_E = 0.1 # Standard deviation of the eastings noise
         self.R_G = np.deg2rad(5) # Standard deviation of the yaw noise
         self.dot_x_R_std = l2m([0.02]) # Standard deviation of the velocity noise
-        self.dot_g_R_std = l2m([np.deg2rad(0.01)]) # Standard deviation of the angular rate noise
+        self.dot_g_R_std = l2m([np.deg2rad(0.05)]) # Standard deviation of the angular rate noise
 
 
         self.R[self.N, self.N] = self.R_N**2
@@ -199,8 +201,8 @@ class LaptopPilot:
         R_N_vals   = [0.01, 0.05, 0.1]                       # low, nominal, high
         R_E_vals   = [0.01, 0.05, 0.1]
         R_G_vals   = [np.deg2rad(1), np.deg2rad(3), np.deg2rad(5)]
-        dot_x_vals = [0.005, 0.01, 0.02]
-        dot_g_vals = [np.deg2rad(0.005), np.deg2rad(0.01), np.deg2rad(0.02)]
+        dot_x_vals = [0.01, 0.05, 0.1]
+        dot_g_vals = [np.deg2rad(0.01), np.deg2rad(0.05), np.deg2rad(0.1)]
 
         factor_index = loop_count // 6   
         subloop = loop_count % 6         
@@ -316,19 +318,21 @@ class LaptopPilot:
     # TRAJECTORY GENERATION
     def generate_trajectory(self):
         # pick waypoints as current pose relative or absolute northings and eastings
-        if self.relative_path == True:
+
+        if self.relative_path == True and self.path1 == True:
             for i in range(len(self.northings_path)):
                 self.northings_path[i] += self.measured_pose_northings_m  # offset by current northings
-                self.eastings_path[i] += self.measured_pose_eastings_m  # offset by current eastings
+                self.eastings_path[i] += self.measured_pose_eastings_m  # offset by current 
+                self.path1 = False
 
-            # convert path to matrix and create a trajectory class instance
-            C = l2m([self.northings_path, self.eastings_path])        
-            self.path = TrajectoryGenerate(C[:,0], C[:,1])        
-            
-            # set trajectory variables (velocity, acceleration and turning arc radius)
-            self.path.path_to_trajectory(self.velocity, self.acceleration)  # velocity and acceleration
-            self.path.turning_arcs(self.turning_radius)  # turning radius
-            self.path.wp_id = 0  # initialises the next waypoint
+        # convert path to matrix and create a trajectory class instance
+        C = l2m([self.northings_path, self.eastings_path])        
+        self.path = TrajectoryGenerate(C[:,0], C[:,1])        
+        
+        # set trajectory variables (velocity, acceleration and turning arc radius)
+        self.path.path_to_trajectory(self.velocity, self.acceleration)  # velocity and acceleration
+        self.path.turning_arcs(self.turning_radius)  # turning radius
+        self.path.wp_id = 0  # initialises the next waypoint
 
     def run(self, time_to_run=-1):
         self.run_count = 0
@@ -343,10 +347,14 @@ class LaptopPilot:
                     break
 
                 self.infinite_flag = self.infinite_loop()
+                #print("LOOP FLAG: ", self.infinite_flag)
                 if self.infinite_flag == True:
+
                     print("PATH COMPLETED, UPDATING PARAMS")
                     
                     R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.run_count)
+
+                    print("RUN COUNT: ", self.run_count, current_time)
 
                     print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
                     
@@ -365,8 +373,8 @@ class LaptopPilot:
                     self.R_N = R_N
                     self.R_E = R_E
                     self.R_G = R_G
-                    self.dot_x_R_std = dot_x
-                    self.dot_g_R_std = dot_g
+                    self.dot_x_R_std = l2m([dot_x])
+                    self.dot_g_R_std = l2m([dot_g])
 
                     # Now update self.R to use these values:
                     self.R[self.N, self.N] = self.R_N**2
@@ -381,8 +389,8 @@ class LaptopPilot:
                     self.covariance[self.DOTX, self.DOTX] = 0.0**2
                     self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
                     
-                    print("FIVE SECOND DELAY STARTING NOW")
-                    time.sleep(5)
+                    print("FIFTEEN SECOND DELAY STARTING NOW")
+                    time.sleep(15)
                     self.run_count += 1
 
                     self.initialise_pose = True

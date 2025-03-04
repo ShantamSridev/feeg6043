@@ -897,7 +897,7 @@ class TrajectoryGenerate():
                 
                 print('************************************************************')
                 print('Trajectory completed at:',self.t_complete,'s')  
-                flag = True
+                wp_flag = True
                 print('************************************************************')                
         else:
             # if within acceptance radius, follow trajectory to next waypoint
