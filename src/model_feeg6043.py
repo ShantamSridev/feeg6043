@@ -846,6 +846,7 @@ class TrajectoryGenerate():
     
     def wp_progress(self, t_robot, p_robot, accept_radius, timeout_factor = 2, initial_timeout = 30):
 
+        flag = False
         # Containor for updated timestamps 
         if len(self.Tp_arc) == 1:
             # means turning_arcs has not run so sample straight line trajectories
@@ -895,7 +896,8 @@ class TrajectoryGenerate():
                 self.t_complete = t_robot
                 
                 print('************************************************************')
-                print('Trajectory completed at:',self.t_complete,'s')    
+                print('Trajectory completed at:',self.t_complete,'s')  
+                flag = True
                 print('************************************************************')                
         else:
             # if within acceptance radius, follow trajectory to next waypoint
@@ -925,7 +927,9 @@ class TrajectoryGenerate():
                     if delay > 0:
                         for i in range(self.wp_id-1,len(Tp)): Tp[i]=Tp[i]+delay
                         if len(self.Tp_arc) == 1: self.Tp = copy.copy(Tp)
-                        else: self.Tp_arc = copy.copy(Tp)                 
+                        else: self.Tp_arc = copy.copy(Tp)       
+
+        return flag          
          
                 
     def _point_to_point(self, x_points,y_points, params, start_stationary = True, end_stationary = True):

@@ -78,7 +78,7 @@ class LaptopPilot:
         # Now repeat 30 times:
         self.northings_path = [0.0]
         self.eastings_path  = [0.0]
-        for _ in range(30):
+        for _ in range(1):
             self.northings_path.extend(northings_segment)
             self.eastings_path.extend(eastings_segment)
         
@@ -328,6 +328,7 @@ class LaptopPilot:
             self.path.wp_id = 0  # initialises the next waypoint
 
     def run(self, time_to_run=-1):
+        self.run_count = 0
         self.start_time = datetime.utcnow().timestamp()
         
         try:
@@ -337,7 +338,53 @@ class LaptopPilot:
                 if time_to_run > 0 and current_time - self.start_time > time_to_run:
                     print("Time is up, stopping…")
                     break
-                self.infinite_loop()
+
+                flag = self.infinite_loop()
+                if flag == True:
+                    print("PATH COMPLETED, UPDATING PARAMS")
+                    
+                    R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.run_count)
+
+                    print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
+                    
+                    # factor_index = 
+                    # print("FACTOR INDEX: ", factor_index)
+                    # param_name = self.param_names[factor_index]
+                    # # If we just moved to a new parameter block, create a new DataLogger
+                    # if factor_index != self.current_factor_index:
+                    #     # Close out the old logger if needed (DataLogger may or may not support an explicit close)
+                    #     # If there's no close() method, you can just let it go, or create a new instance.
+
+                    #     # Now create a brand-new logger with a unique directory:
+                    #     self.datalog = DataLogger(log_dir=f"logs_{param_name}")
+                    #     self.current_factor_index = factor_index
+
+                    self.R_N = R_N
+                    self.R_E = R_E
+                    self.R_G = R_G
+                    self.dot_x_R_std = dot_x
+                    self.dot_g_R_std = dot_g
+
+                    # Now update self.R to use these values:
+                    self.R[self.N, self.N] = self.R_N**2
+                    self.R[self.E, self.E] = self.R_E**2
+                    self.R[self.G, self.G] = (self.R_G)**2
+                    self.R[self.DOTX, self.DOTX] = (self.dot_x_R_std)**2
+                    self.R[self.DOTG, self.DOTG] = (self.dot_g_R_std)**2
+
+                    self.covariance[self.N,self.N] = self.NE_std[0,0]**2
+                    self.covariance[self.E, self.E] = self.NE_std[0,1]**2
+                    self.covariance[self.G, self.G] = self.G_std[0]**2
+                    self.covariance[self.DOTX, self.DOTX] = 0.0**2
+                    self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
+                    
+                    print("FIVE SECOND DELAY STARTING NOW")
+                    time.sleep(5)
+                    self.run_count += 1
+
+                    self.initialise_pose = True
+                    flag = False
+    
                 r.sleep()
         except KeyboardInterrupt:
             print("KeyboardInterrupt received, stopping…")
@@ -505,12 +552,13 @@ class LaptopPilot:
             self.t += dt #add to the elapsed time
             self.t_prev = t_now #update the previous timestep for the next loop
 
-            R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
-            print("LOOP COUNTER: ",self.loop_count, t_now)
-            print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
+            #, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
+            #print("LOOP COUNTER: ",self.loop_count, t_now)
+            #print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
             
-            # factor_index = self.loop_count // 6
-            # param_name = self.param_names[factor_index]
+            #factor_index = self.loop_count // 6
+            #print("FACTOR INDEX: ", factor_index)
+            #param_name = self.param_names[factor_index]
             # # If we just moved to a new parameter block, create a new DataLogger
             # if factor_index != self.current_factor_index:
             #     # Close out the old logger if needed (DataLogger may or may not support an explicit close)
@@ -520,19 +568,19 @@ class LaptopPilot:
             #     self.datalog = DataLogger(log_dir=f"logs_{param_name}")
             #     self.current_factor_index = factor_index
 
-            # Assign these values to your pilot’s process noise:
-            self.R_N = R_N
-            self.R_E = R_E
-            self.R_G = R_G
-            self.dot_x_R_std = dot_x
-            self.dot_g_R_std = dot_g
+            # # Assign these values to your pilot’s process noise:
+            # self.R_N = R_N
+            # self.R_E = R_E
+            # self.R_G = R_G
+            # self.dot_x_R_std = dot_x
+            # self.dot_g_R_std = dot_g
 
-            # Now update self.R to use these values:
-            self.R[self.N, self.N] = self.R_N**2
-            self.R[self.E, self.E] = self.R_E**2
-            self.R[self.G, self.G] = (self.R_G)**2
-            self.R[self.DOTX, self.DOTX] = (self.dot_x_R_std)**2
-            self.R[self.DOTG, self.DOTG] = (self.dot_g_R_std)**2
+            # # Now update self.R to use these values:
+            # self.R[self.N, self.N] = self.R_N**2
+            # self.R[self.E, self.E] = self.R_E**2
+            # self.R[self.G, self.G] = (self.R_G)**2
+            # self.R[self.DOTX, self.DOTX] = (self.dot_x_R_std)**2
+            # self.R[self.DOTG, self.DOTG] = (self.dot_g_R_std)**2
             
             self.state , self.covariance  = self.extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
 
@@ -564,7 +612,7 @@ class LaptopPilot:
             #################### Trajectory sample #################################
 
             # feedforward control: check wp progress and sample reference trajectory
-            self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
+            flag = self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
             p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
 
 
@@ -614,6 +662,7 @@ class LaptopPilot:
             # Send commands to the robot        
             self.wheel_speed_pub.publish(wheel_speed_msg)
             self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
+        return flag
 
 
 if __name__ == "__main__":
