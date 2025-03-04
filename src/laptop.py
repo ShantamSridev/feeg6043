@@ -43,9 +43,6 @@ class LaptopPilot:
         wheel_distance = 0.09
         wheel_diameter = 0.07
         
-        self.loop_flag = False
-        self.infinite_flag = False
-        self.loop_count = 0
 
         # Trajectory parameters
         self.velocity = 0.1
@@ -74,18 +71,9 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        northings_segment = [1.0, 1.0, 0.0, 0.0]
-
-        eastings_segment  = [0.0, 1.0, 1.0, 0.0]
-
-        # Now repeat 30 times:
-        self.northings_path = [0.0]
-        self.eastings_path  = [0.0]
-        for _ in range(2):
-            self.northings_path.extend(northings_segment)
-            self.eastings_path.extend(eastings_segment)
-
-        self.path1 = True
+        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        
         
         self.relative_path = True # False if you want it to be absolute
 
@@ -127,7 +115,7 @@ class LaptopPilot:
         #INITIAL STD DEVIATIONS ############################################
         self.n_std = [1.0]
         self.e_std = [1.0]
-        self.g_std = [np.deg2rad(1.0)]
+        self.g_std = [np.deg2rad(1)]
 
 
         self.G_std = l2m(self.g_std)
@@ -137,8 +125,8 @@ class LaptopPilot:
 
         #MEASUREMENT NOISES ############################################
         #From ARUCO
-        self.NE_Q_std = l2m([[0.1],[0.1]]) # Standard deviation of the northings and eastings noise
-        self.g_Q_std = l2m([np.deg2rad(1)])  # Standard deviation of the yaw noise
+        self.NE_Q_std = l2m([[0.001],[0.003]]) # Standard deviation of the northings and eastings noise
+        self.g_Q_std = l2m([np.deg2rad(0.5)])  # Standard deviation of the yaw noise
 
         self.state = Vector(5)
         self.covariance = Identity(5)
@@ -151,16 +139,12 @@ class LaptopPilot:
         self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
         
         #PROCESS NOISES ############################################
-
-        self.param_names = ["R_N", "R_E", "R_G", "dot_x", "dot_g"]
-        self.current_factor_index = None
-
         #From the motion model
         self.R_N = 0.1 # Standard deviation of the northings noise
         self.R_E = 0.1 # Standard deviation of the eastings noise
         self.R_G = np.deg2rad(5) # Standard deviation of the yaw noise
         self.dot_x_R_std = l2m([0.02]) # Standard deviation of the velocity noise
-        self.dot_g_R_std = l2m([np.deg2rad(0.05)]) # Standard deviation of the angular rate noise
+        self.dot_g_R_std = l2m([np.deg2rad(0.005)]) # Standard deviation of the angular rate noise
 
 
         self.R[self.N, self.N] = self.R_N**2
@@ -189,51 +173,7 @@ class LaptopPilot:
         self.groundtruth_sub = Subscriber(
             "/groundtruth", Pose, self.groundtruth_callback, ip=self.robot_ip
         )
-
-    def cycle_params(self, loop_count):
-
-        R_N_nom   = 0.05                     
-        R_E_nom   = 0.05                     
-        R_G_nom   = np.deg2rad(3)            
-        dot_x_nom = 0.05                     
-        dot_g_nom = np.deg2rad(0.05)         
-
-        R_N_vals   = [0.01, 0.05, 0.1]                       # low, nominal, high
-        R_E_vals   = [0.01, 0.05, 0.1]
-        R_G_vals   = [np.deg2rad(1), np.deg2rad(3), np.deg2rad(5)]
-        dot_x_vals = [0.01, 0.05, 0.1]
-        dot_g_vals = [np.deg2rad(0.01), np.deg2rad(0.05), np.deg2rad(0.1)]
-
-        factor_index = loop_count // 6   
-        subloop = loop_count % 6         
-        value_index = subloop // 2       
-
-
-        R_N   = R_N_nom
-        R_E   = R_E_nom
-        R_G   = R_G_nom
-        dot_x = dot_x_nom
-        dot_g = dot_g_nom
-
-
-        if factor_index == 0:
-            # Testing R_N
-            R_N = R_N_vals[value_index]
-        elif factor_index == 1:
-            # Testing R_E
-            R_E = R_E_vals[value_index]
-        elif factor_index == 2:
-            # Testing R_G
-            R_G = R_G_vals[value_index]
-        elif factor_index == 3:
-            # Testing dot_x
-            dot_x = dot_x_vals[value_index]
-        elif factor_index == 4:
-            # Testing dot_g
-            dot_g = dot_g_vals[value_index]
-
-        return R_N, R_E, R_G, dot_x, dot_g
-                        
+                    
     def true_wheel_speeds_callback(self, msg):
         #print("Received sensed wheel speeds: R=", msg.vector.x,", L=", msg.vector.y)
         self.measured_wheelrate_right = msg.vector.x
@@ -315,27 +255,25 @@ class LaptopPilot:
         pose_msg.pose.orientation = quat        
         
         return pose_msg
+
     # TRAJECTORY GENERATION
     def generate_trajectory(self):
         # pick waypoints as current pose relative or absolute northings and eastings
-
-        if self.relative_path == True and self.path1 == True:
+        if self.relative_path == True:
             for i in range(len(self.northings_path)):
                 self.northings_path[i] += self.measured_pose_northings_m  # offset by current northings
-                self.eastings_path[i] += self.measured_pose_eastings_m  # offset by current 
-                self.path1 = False
+                self.eastings_path[i] += self.measured_pose_eastings_m  # offset by current eastings
 
-        # convert path to matrix and create a trajectory class instance
-        C = l2m([self.northings_path, self.eastings_path])        
-        self.path = TrajectoryGenerate(C[:,0], C[:,1])        
-        
-        # set trajectory variables (velocity, acceleration and turning arc radius)
-        self.path.path_to_trajectory(self.velocity, self.acceleration)  # velocity and acceleration
-        self.path.turning_arcs(self.turning_radius)  # turning radius
-        self.path.wp_id = 0  # initialises the next waypoint
+            # convert path to matrix and create a trajectory class instance
+            C = l2m([self.northings_path, self.eastings_path])        
+            self.path = TrajectoryGenerate(C[:,0], C[:,1])        
+            
+            # set trajectory variables (velocity, acceleration and turning arc radius)
+            self.path.path_to_trajectory(self.velocity, self.acceleration)  # velocity and acceleration
+            self.path.turning_arcs(self.turning_radius)  # turning radius
+            self.path.wp_id = 0  # initialises the next waypoint
 
     def run(self, time_to_run=-1):
-        self.run_count = 0
         self.start_time = datetime.utcnow().timestamp()
         
         try:
@@ -345,57 +283,7 @@ class LaptopPilot:
                 if time_to_run > 0 and current_time - self.start_time > time_to_run:
                     print("Time is up, stopping…")
                     break
-
-                self.infinite_flag = self.infinite_loop()
-                #print("LOOP FLAG: ", self.infinite_flag)
-                if self.infinite_flag == True:
-
-                    print("PATH COMPLETED, UPDATING PARAMS")
-                    
-                    R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.run_count)
-
-                    print("RUN COUNT: ", self.run_count, current_time)
-
-                    print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
-                    
-                    # factor_index = 
-                    # print("FACTOR INDEX: ", factor_index)
-                    # param_name = self.param_names[factor_index]
-                    # # If we just moved to a new parameter block, create a new DataLogger
-                    # if factor_index != self.current_factor_index:
-                    #     # Close out the old logger if needed (DataLogger may or may not support an explicit close)
-                    #     # If there's no close() method, you can just let it go, or create a new instance.
-
-                    #     # Now create a brand-new logger with a unique directory:
-                    #     self.datalog = DataLogger(log_dir=f"logs_{param_name}")
-                    #     self.current_factor_index = factor_index
-
-                    self.R_N = R_N
-                    self.R_E = R_E
-                    self.R_G = R_G
-                    self.dot_x_R_std = l2m([dot_x])
-                    self.dot_g_R_std = l2m([dot_g])
-
-                    # Now update self.R to use these values:
-                    self.R[self.N, self.N] = self.R_N**2
-                    self.R[self.E, self.E] = self.R_E**2
-                    self.R[self.G, self.G] = (self.R_G)**2
-                    self.R[self.DOTX, self.DOTX] = (self.dot_x_R_std)**2
-                    self.R[self.DOTG, self.DOTG] = (self.dot_g_R_std)**2
-
-                    self.covariance[self.N,self.N] = self.NE_std[0,0]**2
-                    self.covariance[self.E, self.E] = self.NE_std[0,1]**2
-                    self.covariance[self.G, self.G] = self.G_std[0]**2
-                    self.covariance[self.DOTX, self.DOTX] = 0.0**2
-                    self.covariance[self.DOTG, self.DOTG] = np.deg2rad(0)**2
-                    
-                    print("FIFTEEN SECOND DELAY STARTING NOW")
-                    time.sleep(20)
-                    self.run_count += 1
-
-                    self.initialise_pose = True
-                    self.infinite_flag = False
-    
+                self.infinite_loop()
                 r.sleep()
         except KeyboardInterrupt:
             print("KeyboardInterrupt received, stopping…")
@@ -435,6 +323,7 @@ class LaptopPilot:
         
         # Return the state and the covariance
         return cor_mu, cor_Sigma
+
 
     def motion_model(self, state, u, dt):
             
@@ -481,6 +370,7 @@ class LaptopPilot:
             F[self.G, self.DOTG] = dt
 
         return state, F
+
 
     def h_g_update(self,x):
         z = Vector(5)
@@ -562,36 +452,6 @@ class LaptopPilot:
             dt = t_now - self.t_prev #timestep from last estimate
             self.t += dt #add to the elapsed time
             self.t_prev = t_now #update the previous timestep for the next loop
-
-            #, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
-            #print("LOOP COUNTER: ",self.loop_count, t_now)
-            #print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
-            
-            #factor_index = self.loop_count // 6
-            #print("FACTOR INDEX: ", factor_index)
-            #param_name = self.param_names[factor_index]
-            # # If we just moved to a new parameter block, create a new DataLogger
-            # if factor_index != self.current_factor_index:
-            #     # Close out the old logger if needed (DataLogger may or may not support an explicit close)
-            #     # If there's no close() method, you can just let it go, or create a new instance.
-
-            #     # Now create a brand-new logger with a unique directory:
-            #     self.datalog = DataLogger(log_dir=f"logs_{param_name}")
-            #     self.current_factor_index = factor_index
-
-            # # Assign these values to your pilot’s process noise:
-            # self.R_N = R_N
-            # self.R_E = R_E
-            # self.R_G = R_G
-            # self.dot_x_R_std = dot_x
-            # self.dot_g_R_std = dot_g
-
-            # # Now update self.R to use these values:
-            # self.R[self.N, self.N] = self.R_N**2
-            # self.R[self.E, self.E] = self.R_E**2
-            # self.R[self.G, self.G] = (self.R_G)**2
-            # self.R[self.DOTX, self.DOTX] = (self.dot_x_R_std)**2
-            # self.R[self.DOTG, self.DOTG] = (self.dot_g_R_std)**2
             
             self.state , self.covariance  = self.extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
 
@@ -623,7 +483,7 @@ class LaptopPilot:
             #################### Trajectory sample #################################
 
             # feedforward control: check wp progress and sample reference trajectory
-            self.loop_flag = self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
+            self.path.wp_progress(self.t, self.state[:3], self.turning_radius)  # fill turning radius
             p_ref, u_ref = self.path.p_u_sample(self.t)  # sample the path at the current elapsetime (i.e., seconds from start of motion modelling)
 
 
@@ -673,7 +533,6 @@ class LaptopPilot:
             # Send commands to the robot        
             self.wheel_speed_pub.publish(wheel_speed_msg)
             self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
-        return self.loop_flag
 
 
 if __name__ == "__main__":
