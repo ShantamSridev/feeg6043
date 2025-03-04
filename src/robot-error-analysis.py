@@ -620,9 +620,8 @@ def main():
     parser = argparse.ArgumentParser(description='Analyze robot positioning error from log files.')
     
     # Define command line arguments
-    parser.add_argument('--log-file', default='../logs/20250304_101150_log.json', 
+    parser.add_argument('--log-file', default='../logs/20250304_134834_log.json', 
                         help='Path to the log file to analyze')
-    
     parser.add_argument('--simulation', dest='simulation', action='store_true',
                         help='Use groundtruth as reference (default)')
     
