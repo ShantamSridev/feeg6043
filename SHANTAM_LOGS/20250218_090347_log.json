@@ -1,0 +1,3 @@
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1739869428.063938", "message": {"header": {"seq": 0, "stamp": 1265.0098929405212, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Pose", "topic_name": "/groundtruth", "timestamp": "1739869428.195646", "message": {"position": {"x": 0.3000679155622142, "y": 0.2999999991794741, "z": 0.07383589179052111}, "orientation": {"x": -0.0, "y": 0.0, "z": 8.04874511824291e-10, "w": -1.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1739869428.252417", "message": {"header": {"seq": 0, "stamp": 1265.1807949543, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
