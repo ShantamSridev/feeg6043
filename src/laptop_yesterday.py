@@ -273,6 +273,26 @@ class LaptopPilot:
             self.path.turning_arcs(self.turning_radius)  # turning radius
             self.path.wp_id = 0  # initialises the next waypoint
 
+
+
+            # Create a CSV file for the trajectory
+            timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            csv_filename = f"trajectory_{timestamp}.csv"
+            
+            # Create logs directory if it doesn't exist
+            Path("logs").mkdir(exist_ok=True)
+            
+            # Open the CSV file for writing
+            self.trajectory_csv = open(f"logs/{csv_filename}", 'w', newline='')
+            self.csv_writer = csv.writer(self.trajectory_csv)
+            
+            # Write header
+            self.csv_writer.writerow(['time', 'x', 'y', 'theta', 'linear_vel', 'angular_vel'])
+            
+            print(f"Saving trajectory to {csv_filename}")
+
+
+
     def run(self, time_to_run=-1):
         self.start_time = datetime.utcnow().timestamp()
         

@@ -854,8 +854,147 @@ def plot_lidar_overlay_on_trajectory(trajectory_data, lidar_scan, robot_pose, ou
     else:
         plt.tight_layout()
         plt.show()
-       
-       
+
+
+def read_trajectory_csv(csv_path, x_offset=0.1, y_offset=0.1):
+    """
+    Read a trajectory CSV file and return the data with optional offsets.
+    
+    Args:
+        csv_path (str): Path to the CSV file
+        x_offset (float): Offset to add to x/easting values
+        y_offset (float): Offset to add to y/northing values
+        
+    Returns:
+        dict: Dictionary with trajectory data
+    """
+    try:
+        df = pd.read_csv(csv_path)
+        
+        # Apply offsets to the position data
+        eastings = [x + x_offset for x in df['x'].tolist()]
+        northings = [y + y_offset for y in df['y'].tolist()]
+        
+        trajectory_data = {
+            'timestamps': df['time'].tolist(),
+            'northings': northings,  # Note: northings is y in the CSV
+            'eastings': eastings,    # Note: eastings is x in the CSV
+            'headings': df['theta'].tolist(),
+            'linear_vel': df['linear_vel'].tolist() if 'linear_vel' in df.columns else [],
+            'angular_vel': df['angular_vel'].tolist() if 'angular_vel' in df.columns else []
+        }
+        
+        print(f"Loaded {len(trajectory_data['timestamps'])} points from trajectory CSV")
+        print(f"Applied offsets: x_offset={x_offset}, y_offset={y_offset}")
+        return trajectory_data
+    except Exception as e:
+        print(f"Error reading trajectory CSV file: {e}")
+        return None
+
+
+def plot_trajectory_with_csv(data, reference_topic, csv_trajectory_data, output_path=None):
+    """
+    Plot the robot's trajectory along with the generated trajectory from CSV.
+    
+    Args:
+        data (dict): Dictionary with extracted data for each topic
+        reference_topic (str): Topic to use as reference ('groundtruth' or 'aruco')
+        csv_trajectory_data (dict): Dictionary with trajectory data from CSV
+        output_path (str, optional): Path to save the plot, or None to display it
+    """
+    plt.figure(figsize=(12, 10))
+    
+    # Define plot order for legend control - ArUco first
+    plot_order = ['aruco', 'groundtruth', 'est_pose']
+    
+    # Plot each trajectory
+    color_map = {
+        'groundtruth': ('orange', 'Ground Truth'),
+        'est_pose': ('green', 'Estimated Pose'),
+        'aruco': ('blue', 'Aruco Markers')
+    }
+    
+    # Plot all trajectories in the defined order
+    for topic in plot_order:
+        if topic in data and 'northings' in data[topic] and 'eastings' in data[topic]:
+            topic_data = data[topic]
+            northings = topic_data['northings']
+            eastings = topic_data['eastings']
+            color, label = color_map[topic]
+            
+            # Special case for aruco (blue): only plot markers, no line
+            if topic == 'aruco':
+                plt.scatter(eastings, northings, color=color, marker='x', label=label, zorder=7)
+            
+            # Special case for groundtruth (orange): plot line with alpha and markers with no alpha
+            elif topic == 'groundtruth':
+                # Plot line with transparency
+                plt.plot(eastings, northings, '-', color=color, alpha=0.4, label=label, zorder=5)
+                # Plot points with full opacity
+                plt.scatter(eastings, northings, color=color, marker='.', s=20, zorder=6)
+            
+            # Default case for other topics
+            else:
+                if topic == reference_topic:
+                    line_style = '-'
+                    marker = '.'
+                else:
+                    line_style = '--' if topic == 'est_pose' else '-.'
+                    marker = '.'
+                    
+                plt.plot(eastings, northings, line_style, label=label, color=color, marker=marker, zorder=5)
+    
+    # Plot CSV trajectory data in red
+    if csv_trajectory_data and 'northings' in csv_trajectory_data and 'eastings' in csv_trajectory_data:
+        plt.plot(csv_trajectory_data['eastings'], csv_trajectory_data['northings'], 
+                 '-', color='red', linewidth=2, label='Generated Trajectory', zorder=8, alpha=0.4)
+
+    
+    # Now add start/end markers for non-aruco topics
+    for topic in plot_order:
+        if topic == 'aruco':
+            continue  # Skip aruco markers
+            
+        if topic in data and 'northings' in data[topic] and 'eastings' in data[topic]:
+            topic_data = data[topic]
+            northings = topic_data['northings']
+            eastings = topic_data['eastings']
+            color, label = color_map[topic]
+            
+            if len(northings) > 0 and len(eastings) > 0:
+                # Use marker='o' and set color separately
+                plt.plot(eastings[0], northings[0], 'o', color=color, markersize=12, label=f"{label} Start", zorder=10)
+                plt.plot(eastings[-1], northings[-1], 'x', color=color, markersize=16, label=f"{label} End", zorder=10)
+    
+    plt.xlabel('X Position (meters)')
+    plt.ylabel('Y Position (meters)')
+    plt.title('Robot Trajectory with Generated Path')
+    plt.grid(True)
+    plt.axis('equal')
+    
+    # Create a clean legend (removing duplicates but preserving order)
+    handles, labels = plt.gca().get_legend_handles_labels()
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_handles = []
+    unique_labels = []
+    for h, l in zip(handles, labels):
+        if l not in seen:
+            seen.add(l)
+            unique_handles.append(h)
+            unique_labels.append(l)
+    
+    plt.legend(unique_handles, unique_labels, loc='best')
+    
+    if output_path:
+        plt.savefig(output_path)
+        print(f"Trajectory plot with CSV data saved to {output_path}")
+    else:
+        plt.show()
+
+
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze robot trajectory data by time range.')
     
@@ -870,6 +1009,7 @@ def main():
     parser.add_argument('--real', dest='simulation', action='store_false', help='Use aruco markers as reference')
     parser.add_argument('--output', '-o', help='Path to save plots (without extension)')
     
+
     # Time-based filtering options
     parser.add_argument('--time', type=str, help='Time range to analyze in seconds (e.g., "5:10" for seconds 5 to 10 from start, or "all" for entire log)')
     
@@ -886,6 +1026,16 @@ def main():
     
     # Error analysis options
     parser.add_argument('--analyze-errors', action='store_true', help='Calculate and display error metrics between reference and est_pose')
+
+
+    # In main(), add these arguments to the argument parser:
+    parser.add_argument('--trajectory-csv', help='Path to trajectory CSV file to plot')
+    parser.add_argument('--x-offset', type=float, default=0.1, 
+                        help='Offset to add to x/easting values (default: 0.1)')
+    parser.add_argument('--y-offset', type=float, default=0.1, 
+                        help='Offset to add to y/northing values (default: 0.1)')
+
+
     
     parser.set_defaults(simulation=True)
     
@@ -981,10 +1131,28 @@ def main():
         # Generate output paths
         time_suffix = f"_time_{args.time.replace(':', '-')}" if args.time else ""
         
+
+        # Then, replace the CSV reading code with:
+        # Check if trajectory CSV file is provided
+        csv_trajectory_data = None
+        if args.trajectory_csv:
+            csv_trajectory_data = read_trajectory_csv(
+                args.trajectory_csv, 
+                x_offset=args.x_offset, 
+                y_offset=args.y_offset
+            )
+
         # Plot the trajectory
-        trajectory_output = f"{args.output}{time_suffix}_trajectory.png" if args.output else None
-        plot_trajectory(filtered_data, reference_topic, output_path=trajectory_output)
+        if csv_trajectory_data:
+            # Plot with CSV trajectory data
+            trajectory_output = f"{args.output}{time_suffix}_trajectory_with_csv.png" if args.output else None
+            plot_trajectory_with_csv(filtered_data, reference_topic, csv_trajectory_data, output_path=trajectory_output)
+        else:
+            # Use the original trajectory plotting function
+            trajectory_output = f"{args.output}{time_suffix}_trajectory.png" if args.output else None
+            plot_trajectory(filtered_data, reference_topic, output_path=trajectory_output)
         
+        # Rest of the code remains the same...
         # Plot wheel speeds if requested
         if args.plot_wheel_speeds:
             wheel_speeds_output = f"{args.output}{time_suffix}_wheel_speeds.png" if args.output else None
@@ -1054,7 +1222,6 @@ def main():
                     else:
                         print("No suitable reference data (groundtruth or aruco) available for LIDAR overlay.")
 
-
         # Analyze errors if requested
         if args.analyze_errors:
             # Check if both reference and estimated pose data are available
@@ -1083,7 +1250,6 @@ def main():
         if args.debug:
             import traceback
             traceback.print_exc()
-
 
 if __name__ == "__main__":
     main()
@@ -1162,9 +1328,3 @@ if __name__ == "__main__":
 #  - Params: Covariance: 1 1 1, Aruco: 0.1 0.1 1, Motion Model: 0.01 0.05 3 0.05 0.05 
 # # Loop 9-11
 #  - Params: Covariance: 1 1 1, Aruco: 0.1 0.1 1, Motion Model: 0.05 0.05 3 0.05 0.05 
-# # Loop 12-14
-#  - Params: Covariance: 1 1 1, Aruco: 0.1 0.1 1, Motion Model: 0.1 0.1 5 0.02 0.01 
-# # Loop 15-17
-#  - Params: Covariance: 1 1 1, Aruco: 0.1 0.1 1, Motion Model: 0.1 0.1 5 0.02 0.01 
-# # Loop 18-20
-#  - Params: Covariance: 1 1 1, Aruco: 0.1 0.1 1, Motion Model: 0.1 0.1 5 0.02 0.01 
