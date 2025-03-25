@@ -158,7 +158,7 @@ class LaptopPilot:
         self.aruco_count = 0
         self.loop_count = 0
         
-        self.datalog = DataLogger(log_dir="logs")
+        self.datalog = DataLogger(log_dir="logs_for_lidar")
 
         # Wheels speeds in rad/s are encoded as a Vector3 with timestamp, 
         # with x for the right wheel and y for the left wheel.        
@@ -524,8 +524,10 @@ class LaptopPilot:
             q = self.ddrive.inv_kinematics(u)            
             #print(f"q: {q}")
             wheel_speed_msg = Vector3Stamped()
-            wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
-            wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
+            #wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
+            wheel_speed_msg.vector.x = 0  # Right wheelspeed rad/s
+            #wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
+            wheel_speed_msg.vector.y = 0
 
             self.cmd_wheelrate_right = wheel_speed_msg.vector.x
             self.cmd_wheelrate_left = wheel_speed_msg.vector.y
