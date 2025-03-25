@@ -73,6 +73,8 @@ class LaptopPilot:
         # path
         self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
         self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        # self.northings_path = [0]
+        # self.eastings_path = [0]
         
         
         self.relative_path = True # False if you want it to be absolute
@@ -351,7 +353,7 @@ class LaptopPilot:
         DOTG_k =  state[self.DOTG]
 
         # Compute its jacobian
-        F = Identity(5)    
+        F = Identity(5)  
 
         if abs(DOTG_k) <1E-2: # caters for zero angular rate, but uses a threshold to avoid numerical instability
             F[self.N, self.G] = -DOTX_k * dt *np.sin(G_k_1)
