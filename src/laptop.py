@@ -45,7 +45,7 @@ class LaptopPilot:
         
         # Trajectory parameters
         
-        self.velocity = 0.1
+        self.velocity = 0.05
         self.acceleration = self.velocity/3
         
         
@@ -53,14 +53,14 @@ class LaptopPilot:
         # control parameters        
 
         #GAIN VARIABLES
-        self.tau_s = 0.5 # s to remove along track error
+        self.tau_s = 2 # s to remove along track error
         self.L = 0.3 # m distance to remove normal and angular error
 
 
         # compute control gains for the initial condition (where robot is stationary)
         self.k_s = 1/self.tau_s  # along track gain
         
-        self.v_max = 0.2 # fastest the robot can go
+        self.v_max = 0.1 # fastest the robot can go
         self.w_max = np.deg2rad(15) # fastest the robot can turn
 
         self.initialise_control = True # False once control gains is initialised 
@@ -70,8 +70,8 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        self.northings_path = [0.0, 1.5, 1.5, 0.0, 0.0, 1.5, 1.5, 0.0, 0.0, 1.5, 1.5, 0.0, 0.0] # create a list of waypoints
+        self.eastings_path = [0.0, 0.0, 1.5, 1.5, 0.0, 0.0, 1.5, 1.5, 0.0, 0.0, 1.5, 1.5, 0.0] # create a list of waypoints
         
         
         self.relative_path = True # False if you want it to be absolute
@@ -423,7 +423,9 @@ class LaptopPilot:
             self.generate_trajectory()
             # path and trajectory are initialised
             self.initialise_pose = False 
-
+        print(f"initialise_pose={self.initialise_pose}")
+        print(f"self.measured_wheelrate_right={self.measured_wheelrate_right}")
+        print(f"self.measured_wheelrate_left={self.measured_wheelrate_left}")
         if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
             #print(self.measured_pose_northings_m)
             #print(f"loop_={self.loop_count}")
