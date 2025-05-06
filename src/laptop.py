@@ -524,9 +524,9 @@ class LaptopPilot:
             q = self.ddrive.inv_kinematics(u)            
             #print(f"q: {q}")
             wheel_speed_msg = Vector3Stamped()
-            #wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
+            wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
             wheel_speed_msg.vector.x = 0  # Right wheelspeed rad/s
-            #wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
+            wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
             wheel_speed_msg.vector.y = 0
 
             self.cmd_wheelrate_right = wheel_speed_msg.vector.x
