@@ -59,7 +59,7 @@ class LaptopPilot:
         self.k_s = 1/self.tau_s  # along track gain
         
         self.v_max = 0.2 # fastest the robot can go
-        self.w_max = np.deg2rad(5) # fastest the robot can turn
+        self.w_max = np.deg2rad(15) # fastest the robot can turn
 
 
 
@@ -71,11 +71,16 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
-        # self.northings_path = [0]
-        # self.eastings_path = [0]
-        
+        northings_segment = [1.0, 1.0, 0.0, 0.0]
+
+        eastings_segment  = [0.0, 1.0, 1.0, 0.0]
+
+        # Now repeat 30 times:
+        self.northings_path = [0.0]
+        self.eastings_path  = [0.0]
+        for _ in range(30):
+            self.northings_path.extend(northings_segment)
+            self.eastings_path.extend(eastings_segment)
         
         self.relative_path = True # False if you want it to be absolute
 
@@ -117,7 +122,7 @@ class LaptopPilot:
         #INITIAL STD DEVIATIONS ############################################
         self.n_std = [1.0]
         self.e_std = [1.0]
-        self.g_std = [np.deg2rad(1)]
+        self.g_std = [np.deg2rad(1.0)]
 
 
         self.G_std = l2m(self.g_std)
@@ -127,8 +132,8 @@ class LaptopPilot:
 
         #MEASUREMENT NOISES ############################################
         #From ARUCO
-        self.NE_Q_std = l2m([[0.001],[0.003]]) # Standard deviation of the northings and eastings noise
-        self.g_Q_std = l2m([np.deg2rad(0.5)])  # Standard deviation of the yaw noise
+        self.NE_Q_std = l2m([[0.1],[0.1]]) # Standard deviation of the northings and eastings noise
+        self.g_Q_std = l2m([np.deg2rad(1)])  # Standard deviation of the yaw noise
 
         self.state = Vector(5)
         self.covariance = Identity(5)
@@ -146,7 +151,7 @@ class LaptopPilot:
         self.R_E = 0.1 # Standard deviation of the eastings noise
         self.R_G = np.deg2rad(5) # Standard deviation of the yaw noise
         self.dot_x_R_std = l2m([0.02]) # Standard deviation of the velocity noise
-        self.dot_g_R_std = l2m([np.deg2rad(0.005)]) # Standard deviation of the angular rate noise
+        self.dot_g_R_std = l2m([np.deg2rad(0.01)]) # Standard deviation of the angular rate noise
 
 
         self.R[self.N, self.N] = self.R_N**2
@@ -158,7 +163,7 @@ class LaptopPilot:
         self.aruco_count = 0
         self.loop_count = 0
         
-        self.datalog = DataLogger(log_dir="logs_for_lidar")
+        self.datalog = DataLogger(log_dir="logs")
 
         # Wheels speeds in rad/s are encoded as a Vector3 with timestamp, 
         # with x for the right wheel and y for the left wheel.        
@@ -175,7 +180,51 @@ class LaptopPilot:
         self.groundtruth_sub = Subscriber(
             "/groundtruth", Pose, self.groundtruth_callback, ip=self.robot_ip
         )
-                    
+
+    def cycle_params(self, loop_count):
+
+        R_N_nom   = 0.05                     
+        R_E_nom   = 0.05                     
+        R_G_nom   = np.deg2rad(3)            
+        dot_x_nom = 0.01                     
+        dot_g_nom = np.deg2rad(0.01)         
+
+        R_N_vals   = [0.01, 0.05, 0.1]                       # low, nominal, high
+        R_E_vals   = [0.01, 0.05, 0.1]
+        R_G_vals   = [np.deg2rad(1), np.deg2rad(3), np.deg2rad(5)]
+        dot_x_vals = [0.005, 0.01, 0.02]
+        dot_g_vals = [np.deg2rad(0.005), np.deg2rad(0.01), np.deg2rad(0.02)]
+
+        factor_index = loop_count // 6   
+        subloop = loop_count % 6         
+        value_index = subloop // 2       
+
+
+        R_N   = R_N_nom
+        R_E   = R_E_nom
+        R_G   = R_G_nom
+        dot_x = dot_x_nom
+        dot_g = dot_g_nom
+
+
+        if factor_index == 0:
+            # Testing R_N
+            R_N = R_N_vals[value_index]
+        elif factor_index == 1:
+            # Testing R_E
+            R_E = R_E_vals[value_index]
+        elif factor_index == 2:
+            # Testing R_G
+            R_G = R_G_vals[value_index]
+        elif factor_index == 3:
+            # Testing dot_x
+            dot_x = dot_x_vals[value_index]
+        elif factor_index == 4:
+            # Testing dot_g
+            dot_g = dot_g_vals[value_index]
+
+        return R_N, R_E, R_G, dot_x, dot_g
+                        
     def true_wheel_speeds_callback(self, msg):
         #print("Received sensed wheel speeds: R=", msg.vector.x,", L=", msg.vector.y)
         self.measured_wheelrate_right = msg.vector.x
@@ -353,7 +402,7 @@ class LaptopPilot:
         DOTG_k =  state[self.DOTG]
 
         # Compute its jacobian
-        F = Identity(5)  
+        F = Identity(5)    
 
         if abs(DOTG_k) <1E-2: # caters for zero angular rate, but uses a threshold to avoid numerical instability
             F[self.N, self.G] = -DOTX_k * dt *np.sin(G_k_1)
@@ -363,7 +412,7 @@ class LaptopPilot:
             F[self.G, self.DOTG] = dt     
             
         else:
-            F[self.N, self.G] = (DOTX_k/DOTG_k)*(np.cos(G_k)-np.cos(G_k_1))
+            F[self.N, self.G] = (DOTG_k/DOTG_k)*(np.cos(G_k)-np.cos(G_k_1))
             F[self.N, self.DOTX] = (1/DOTG_k)*(np.sin(G_k)-np.sin(G_k_1))
             F[self.N, self.DOTG] = (DOTX_k/(DOTG_k**2))*(np.sin(G_k_1)-np.sin(G_k))+(DOTX_k*dt/DOTG_k)*np.cos(G_k)
             F[self.E, self.G] = (DOTX_k/DOTG_k)*(np.sin(G_k)-np.sin(G_k_1))
@@ -454,6 +503,24 @@ class LaptopPilot:
             dt = t_now - self.t_prev #timestep from last estimate
             self.t += dt #add to the elapsed time
             self.t_prev = t_now #update the previous timestep for the next loop
+
+            R_N, R_E, R_G, dot_x, dot_g = self.cycle_params(self.loop_count)
+            print("LOOP COUNTER: ",self.loop_count, t_now)
+            print("R_N: ", R_N, "R_E: ", R_E, "R_G: ", R_G, "dot_x: ", dot_x, "dot_g: ", dot_g)
+
+            # Assign these values to your pilot’s process noise:
+            self.R_N = R_N
+            self.R_E = R_E
+            self.R_G = R_G
+            self.dot_x_R_std = dot_x
+            self.dot_g_R_std = dot_g
+
+            # Now update self.R to use these values:
+            self.R[self.N, self.N] = self.R_N**2
+            self.R[self.E, self.E] = self.R_E**2
+            self.R[self.G, self.G] = (self.R_G)**2
+            self.R[self.DOTX, self.DOTX] = (self.dot_x_R_std)**2
+            self.R[self.DOTG, self.DOTG] = (self.dot_g_R_std)**2
             
             self.state , self.covariance  = self.extended_kalman_filter_predict(self.state, self.covariance, u, self.motion_model, self.R, dt)
 
@@ -525,9 +592,7 @@ class LaptopPilot:
             #print(f"q: {q}")
             wheel_speed_msg = Vector3Stamped()
             wheel_speed_msg.vector.x = q[0,0]  # Right wheelspeed rad/s
-            wheel_speed_msg.vector.x = 0  # Right wheelspeed rad/s
             wheel_speed_msg.vector.y = q[1,0]  # Left wheelspeed rad/s
-            wheel_speed_msg.vector.y = 0
 
             self.cmd_wheelrate_right = wheel_speed_msg.vector.x
             self.cmd_wheelrate_left = wheel_speed_msg.vector.y
