@@ -1,0 +1,10 @@
+# Python cache files
+src/__pycache__/
+*.py[cod]
+*$py.class
+*.cpython-*.pyc
+*.pyc
+
+# VS Code settings
+.vscode/
+*.code-workspace
