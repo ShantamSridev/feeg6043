@@ -493,7 +493,9 @@ def show_information_intensity(matrix,n_pose,pose_size,n_landmark,landmark_size)
         cax.set_clim(vmin=0.1,vmax=3)
 
     # Show the matrix
-    plt.show()
+    # Saving the plot as a JPEG file
+    plt.savefig("output1.jpg")
+    #plt.show()
     
 def show_information_source(matrix,n_pose,pose_size,n_landmark,landmark_size,matrix_compare = None):      
 
@@ -589,7 +591,9 @@ def show_information_source(matrix,n_pose,pose_size,n_landmark,landmark_size,mat
     ax.grid(which="minor", color="black", linestyle='-', linewidth=1)
 
     # Show the matrix
-    plt.show()        
+    # Saving the plot as a JPEG file
+    plt.savefig("output2.jpg")
+    #plt.show()        
 
 # def plot_motion_uncertainty(sigma_motion,u,dt=1.0,n=100):
    

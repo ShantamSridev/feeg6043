@@ -1685,7 +1685,7 @@ class graphslam_frontend:
         
         self.b = Vector(3*self.n+2*self.m)        
         self.H = Matrix(3*self.n+2*self.m,3*self.n+2*self.m)
-                
+        print("GRAPH1")        
         #constrain the initial location
         self.H[0:3,0:3] = Inverse(self.sigma_anchor) 
 
@@ -1693,21 +1693,23 @@ class graphslam_frontend:
         for k in range(self.e):
                         
             if visualise_flag == True: print('Edge',self.edge[k])
-            
+            print("GRAPH2")
+
             edge_type=self.edge[k][0]
             i=self.edge[k][1]
             j=self.edge[k][2]    
-        
+
+            print("GRAPH3")
             if edge_type == 'motion':
                 #point to correct location in the extended state vector
                 self.state_vector[3*i:3*i+3]=self.pose[i]
                 self.state_vector[3*j:3*j+3]=self.pose[j]
                 # associate the constraint
                 z_ij =self.edge[k][3]
-
+                print("GRAPH4")
                 # construct the information vector and matrix using the motion Jacobian                
                 e_ij,A_ij,self.bij = self._Jacobian(edge_type,self.state_vector[3*i:3*i+3],self.state_vector[3*j:3*j+3],z_ij,visualise_flag)
-                
+                print("GRAPH5")
                 if visualise_flag == True:
                     print('self.pose[i]',self.pose[i])
                     print('self.pose[j]',self.pose[j])                
@@ -1717,6 +1719,11 @@ class graphslam_frontend:
                     print('self.bij',self.bij)
                     
                 sigma_ij = self.pose_covariance[j]-self.pose_covariance[i]#-
+
+                if np.all(sigma_ij == 0):
+                    print("sigma_ij = ", np.shape(sigma_ij), sigma_ij)
+                    print("$$$$$$$$$$$$$$$$$$$$$$$$ instance skipped for k = ",k)
+                    continue
 
                 # populate information vector and matrix
                 self.b[3*i:3*i+3] += (e_ij.T@Inverse(sigma_ij)@A_ij).T

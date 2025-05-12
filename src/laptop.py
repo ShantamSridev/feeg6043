@@ -16,9 +16,9 @@ from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
 from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation, t2v, v2t, polar2cartesian
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
-from model_feeg6043 import graphslam_frontend, lidar_scan   
+from model_feeg6043 import graphslam_frontend, lidar_scan, graphslam_backend 
 from classifier import GPC_input_output, load_model
-from plot_feeg6043 import plot_2dframe, sigma_contour
+from plot_feeg6043 import plot_2dframe, sigma_contour, show_information
 import copy
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
@@ -66,8 +66,8 @@ class LaptopPilot:
 
         # ============ ROBOT PHYSICAL PARAMETERS ============
         # These define the physical dimensions of the robot
-        wheel_distance = 0.165/2  # Distance between left and right wheels in meters
-        wheel_diameter = 0.070  # Diameter of each wheel in meters
+        wheel_distance = 0.0815  # Distance between left and right wheels in meters
+        wheel_diameter = 0.065  # Diameter of each wheel in meters
 
         # Create differential drive configuration object
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter)
@@ -75,22 +75,22 @@ class LaptopPilot:
 
         # ============ TRAJECTORY PARAMETERS ============
         # These control how the robot moves along its path
-        self.velocity = 0.08              # Desired forward velocity in m/s
+        self.velocity = 0.1              # Desired forward velocity in m/s
         self.acceleration = self.velocity/3 # How quickly to reach desired velocity
-        self.turning_radius = 0.3         # Minimum turning radius in meters
+        self.turning_radius = 0.25         # Minimum turning radius in meters
 
 
         # ============ CONTROL PARAMETERS ============
         # These values control how aggressively the robot corrects errors
-        self.tau_s = 0.5  # Time constant for removing along-track error (seconds)
-        self.L = 0.3      # Distance constant for removing cross-track and angular error (meters)
+        self.tau_s = 0.1  # Time constant for removing along-track error (seconds)
+        self.L = 0.075      # Distance constant for removing cross-track and angular error (meters)
 
         # Control gains - these determine how strongly the robot responds to errors
         self.k_s = 1/self.tau_s  # Along-track gain (how strongly to correct forward/backward error)
 
         # Velocity and turning rate limits for safety
-        self.v_max = 0.08          # Maximum forward/backward speed in m/s
-        self.w_max = np.deg2rad(15)  # Maximum turning rate in rad/s (15 degrees/s)
+        self.v_max = 0.2          # Maximum forward/backward speed in m/s
+        self.w_max = np.deg2rad(30)  # Maximum turning rate in rad/s (15 degrees/s)
 
         # Initialization flags
         self.initialise_control = True  # Will be set to False after first control update
@@ -872,6 +872,8 @@ class LaptopPilot:
 
 
             print("s3")
+            ################################## BACKEND ######################################
+
             if self.completed == True:
     
                 # completes the motion
@@ -881,7 +883,150 @@ class LaptopPilot:
 
                 self.graph.construct_graph()
 
+                
 
+                initial_residual = 100  # just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
+                initial_flag = True
+
+                residual_threshold = 1E-12  # if result changes by <1
+                delta_threshold = 1/10  # if result changes by <1
+                lim_iterations = 20
+
+                n_iterations = 0
+                delta_residual = initial_residual
+                residual = initial_residual
+
+                visualise_flag = False
+                iteration_continue = True
+                residual_continue = True
+                converge_continue = True
+
+                # if any of the conditions become false, then while loop will exit
+                cpu_start_solver = datetime.now()
+
+
+                graph_init = copy.deepcopy(self.graph)
+                graph_validate = copy.deepcopy(self.graph)
+                graph_opt = graphslam_backend(self.graph)
+
+                while iteration_continue and residual_continue and converge_continue:
+                    graph_opt.solve()
+
+                    prev_residual = residual
+                    residual = graph_opt.residual
+
+                    delta_residual = abs((prev_residual - residual) / prev_residual)
+                    n_iterations += 1
+
+                    print('**************  Residual = ', residual, ' ***************')
+                    residual_continue = (residual > residual_threshold)
+                    print('Residual above threshold?', residual_continue)
+
+                    print('************** Iteration = ', n_iterations, ' ***************')
+                    iteration_continue = (n_iterations <= lim_iterations)
+                    print('Iterations below limit?', iteration_continue)
+
+                    print('********* Delta Residual = ', delta_residual, ' ***************')
+                    converge_continue = (delta_residual > delta_threshold)
+                    print('Residual still changing?', converge_continue)
+
+                    # reconstruct the graph with these nodes
+                    graph_opt = graphslam_frontend(graph_opt)   # Task
+                    graph_opt.construct_graph()  # Task
+                    graph_opt = graphslam_backend(graph_opt)    # Task
+
+                cpu_end_solver = datetime.now()
+                delta = cpu_end_solver - cpu_start_solver
+                print('********* Final solution took:', (delta.total_seconds()), 's ***************')
+
+
+
+                #show the original graph
+                graph_opt = graphslam_backend(graph_init)
+                print('Original graph has:')
+                print('Poses',graph_init.n)
+                print('Landmarks',graph_init.m)
+                print('Edges',graph_init.e)
+
+
+                #show the reduced form
+                pose_graph = graph_opt.reduce2pose()
+                print('Reduced graph has:')
+                print('Poses',pose_graph.n)
+                print('Landmarks',pose_graph.m)
+                print('Edges',pose_graph.e)
+
+                # shows information vector and matrix
+                visualise_flag = True 
+                pose_graph = graph_opt.reduce2pose(visualise_flag)
+                print('Grey cells indicate information that has been modified through the graph reduction')
+
+
+
+                initial_residual = 100 #just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
+                initial_flag = True
+
+                residual_threshold = 1E-12 #if result changes by <1
+                delta_threshold = 1/1000 #if result changes by <1
+                lim_iterations = 20
+
+                n_iterations = 0
+                delta_residual = initial_residual
+                residual = initial_residual
+
+                visualise_flag = False
+                iteration_continue = True 
+                residual_continue = True
+                converge_continue = True
+
+                # reset the pose graph (full_graph_ should be unaffected by previous calculations)
+                pose_graph = graph_opt.reduce2pose(visualise_flag)
+                l = graph_opt.n*3
+
+                # if any of the conditions become false, then while loop will exit
+                cpu_start_solver = datetime.now()
+
+                while iteration_continue and residual_continue and converge_continue:
+                    
+                    pose_graph.solve()    
+                    
+                    prev_residual = residual
+                    residual = pose_graph.residual
+
+                    delta_residual = abs((prev_residual - residual) /prev_residual)
+                    n_iterations += 1
+
+                    print('**************  Residual = ',residual,' ***************')        
+                    residual_continue = (residual > residual_threshold)
+                    print('Residual above threshold?',residual_continue)    
+                    
+                    print('************** Iteration = ',n_iterations,' ***************')
+                    iteration_continue = (n_iterations <= lim_iterations)
+                    print('Iterations below limit?',iteration_continue)
+
+                    print('********* Delta Residual = ', delta_residual, ' ***************')
+                    converge_continue = (delta_residual > delta_threshold)
+                    print('Residual still changing?', converge_continue)
+
+                    #reconstruct the graph with these nodes
+                    graph_opt.state_vector[0:l] = pose_graph.state_vector # Task
+                    graph_opt.state_vector[l:] = Inverse(graph_opt.H[l:,l:])@(graph_opt.b[l:]+graph_opt.H[l:,0:l]@graph_opt.state_vector[0:l])
+                    graph_opt = graphslam_frontend(graph_opt)
+                    graph_opt.construct_graph()
+                    graph_opt = graphslam_backend(graph_opt) 
+                    
+                    pose_graph = graph_opt.reduce2pose(visualise_flag) # Task
+
+                cpu_end_solver = datetime.now()
+
+                show_information(pose_graph.H,pose_graph.n,3,pose_graph.m,2, matrix_compare = graph_init.H[0:l,0:l])
+                    
+
+                delta =  cpu_end_solver - cpu_start_solver
+                print('********* Final solution took:',(delta.total_seconds()),'s ***************')                                                                
+
+################################## BACKEND ######################################
+ 
 
 
 
