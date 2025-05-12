@@ -1024,6 +1024,7 @@ class TrajectoryGenerate():
         scheduled_time = 0 #s
         
         wp_progress_flag = False # flag to progress to next waypoint
+        flag_complete = True
 
         # check distance to the next waypoint
         distance_to_wp = np.sqrt((P[self.wp_id,0]-p_robot[0])**2+(P[self.wp_id,1]-p_robot[1])**2)

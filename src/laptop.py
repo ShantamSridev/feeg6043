@@ -361,12 +361,13 @@ class LaptopPilot:
         observation, _ = lidar_scan(p_eb, self.lidar_data, self.lidar, self.sigma_observe)
         flag = False
         t_em = Vector(2)
+        t_em[0] = 0.0  # Initialize with default values
+        t_em[1] = 0.0
 
         if (observation is not None and not np.isnan(observation).any() and self.gpc_corner is not None):
             # Wrap the observation in GPC_input_output class
             new_observation = GPC_input_output(observation, None)
             
-            # Use classifier to judge if it is a corner or not, can increase this to be more conservative
             # Check if the observation is classified as a corner
             prediction = self.gpc_corner.predict([new_observation.data_filled[:, 0]])
             if prediction[0] == "corner":
@@ -379,13 +380,16 @@ class LaptopPilot:
                     # Convert polar coordinates to cartesian in sensor frame
                     new_observation.ne_representative = self.lidar.rangeangle_to_loc(p_eb, z_lm)
                     
-                    # Convert to environment frame using current robot pose
-                    H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
-                    print('Map observation made at, Northings = ', new_observation.ne_representative[0], 'm, Eastings =', new_observation.ne_representative[1], 'm')
-                    
-                    # Only set t_em if we have a valid corner detection
-                    t_em[0] = new_observation.ne_representative[0]
-                    t_em[1] = new_observation.ne_representative[1]
+                    if new_observation.ne_representative is not None:
+                        # Convert to environment frame using current robot pose
+                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
+                        print('Map observation made at, Northings = ', new_observation.ne_representative[0], 'm, Eastings =', new_observation.ne_representative[1], 'm')
+                        
+                        # Only set t_em if we have a valid corner detection
+                        t_em[0] = new_observation.ne_representative[0]
+                        t_em[1] = new_observation.ne_representative[1]
+                    else:
+                        flag = False
 
         return t_em, flag
     
