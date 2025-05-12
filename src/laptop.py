@@ -37,8 +37,9 @@ from model_feeg6043 import (
     lidar_scan,
     graphslam_frontend,
     graphslam_backend,
+    t2v, v2t
 )
-from math_feeg6043 import Vector, Matrix, l2m, Inverse, HomogeneousTransformation
+from math_feeg6043 import Vector, Matrix, l2m, Inverse, HomogeneousTransformation, polar2cartesian
 
 import warnings
 
@@ -658,9 +659,16 @@ class LaptopPilot:
                     )
                 ]
                 if new_observation.label == "corner":
-                    print(
-                        f"#######################\n\n CORNER DETECTED at {p_robot}  \n\n#######################"
-                    )
+                    r, theta, idx = self.find_corner(new_observation)
+                    if r is not None:
+                        # Convert polar coordinates to cartesian in sensor frame
+                        x_l, y_l = polar2cartesian(r, theta)
+                        
+                        # Convert to environment frame using current robot pose
+                        H_eb = HomogeneousTransformation(p_robot[0:2], p_robot[2]) 
+                        t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
+                        
+                        print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
 
             msg = self.pose_parse(
                 [

@@ -1829,8 +1829,8 @@ class graphslam_frontend:
             dR_i_d_g_i = Matrix(2,2)
             dR_i_d_g_i[0,0] = -np.sin(X_i.gamma)
             dR_i_d_g_i[1,1] = -np.sin(X_i.gamma)
-            dR_i_d_g_i[0,1] = -np.cos(X_i.gamma)
-            dR_i_d_g_i[1,0] = np.cos(X_i.gamma)            
+            dR_i_d_g_i[0,1] = -np.cos(X_i.gamma)    #POSSIBLY FLIPPED
+            dR_i_d_g_i[1,0] = np.cos(X_i.gamma)   #POSSIBLY FLIPPED         
 
             A_il = Matrix(2,3)            
             A_il[0:2,0:2] = -X_i.R.T
