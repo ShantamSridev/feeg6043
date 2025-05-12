@@ -1,0 +1,1 @@
+{"class": "PoseStamped", "topic_name": "/aruco", "timestamp": "1746528770.415875", "message": {"header": {"seq": 0, "stamp": 1746532369.909358, "frame_id": ""}, "pose": {"position": {"x": 0.18080246838773073, "y": 0.3098776804203439, "z": 0}, "orientation": {"x": 0.0, "y": 0.0, "z": 0.08623199278676387, "w": 0.9962750842111949}}}}

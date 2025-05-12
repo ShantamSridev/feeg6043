@@ -1222,13 +1222,13 @@ def main():
                     else:
                         print("No suitable reference data (groundtruth or aruco) available for LIDAR overlay.")
 
-        # Analyze errors if requested
+        # Add this modification to the error calculation section in main()
         if args.analyze_errors:
-            # Check if both reference and estimated pose data are available
-            if reference_topic in filtered_data and 'est_pose' in filtered_data:
-                print("\nCalculating error metrics...")
+            # Use ArUco CSV as ground truth instead of reference_topic
+            if 'aruco_csv' in filtered_data and 'est_pose' in filtered_data:
+                print("\nCalculating error metrics using ArUco CSV as ground truth...")
                 
-                errors = calculate_trajectory_errors(filtered_data[reference_topic], filtered_data['est_pose'])
+                errors = calculate_trajectory_errors(filtered_data['aruco_csv'], filtered_data['est_pose'])
                 
                 if errors:
                     # Calculate and display error statistics
@@ -1240,8 +1240,8 @@ def main():
                 else:
                     print("Unable to calculate error metrics - no overlapping data found.")
             else:
-                if reference_topic not in filtered_data:
-                    print(f"Error: Reference data ({reference_topic}) not available for error analysis.")
+                if 'aruco_csv' not in filtered_data:
+                    print("Error: ArUco CSV data not available for error analysis. Please provide --aruco-csv parameter.")
                 if 'est_pose' not in filtered_data:
                     print("Error: Estimated pose data not available for error analysis.")
         

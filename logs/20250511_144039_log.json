@@ -1,0 +1,8 @@
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967248.340342", "message": {"header": {"seq": 0, "stamp": 0.21635913848876953, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967248.503975", "message": {"header": {"seq": 0, "stamp": 0.36855602264404297, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967248.663394", "message": {"header": {"seq": 0, "stamp": 0.5389220714569092, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967248.847488", "message": {"header": {"seq": 0, "stamp": 0.7230019569396973, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967249.007355", "message": {"header": {"seq": 0, "stamp": 0.8766939640045166, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967249.118419", "message": {"header": {"seq": 0, "stamp": 0.9754149913787842, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967249.263474", "message": {"header": {"seq": 0, "stamp": 1.137113094329834, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1746967249.360537", "message": {"header": {"seq": 0, "stamp": 1.2251269817352295, "frame_id": ""}, "vector": {"x": 0.0, "y": 0.0, "z": 0.0}}}
