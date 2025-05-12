@@ -40,6 +40,7 @@ from model_feeg6043 import (
     t2v, v2t
 )
 from math_feeg6043 import Vector, Matrix, l2m, Inverse, HomogeneousTransformation, polar2cartesian
+from classifier import GPC_input_output, load_model
 
 import warnings
 
@@ -132,7 +133,7 @@ class LaptopPilot:
             lidar_xb,
             lidar_yb,
             distance_range=[0.1, 1],
-            scan_fov=np.deg2rad(60),
+            scan_fov=np.deg2rad(120),
             n_beams=30,
         )
 
@@ -196,7 +197,9 @@ class LaptopPilot:
         self.sigma_anchor[2, 2] = 0.1
 
         ######################## Graph SLAM ###########################
-        self.gpc_corner = None
+        self.gpc_corner = load_model()
+        if self.gpc_corner is None:
+            print("Warning: No trained model found. Corner detection will not work.")
 
         self.graph = graphslam_frontend()
         self.graph.anchor(self.sigma_anchor)
@@ -333,160 +336,6 @@ class LaptopPilot:
         self.path.turning_arcs(self.turning_radius)  # turning radius
         self.path.wp_id = 0  # initialises the next waypoint
 
-    def find_corner(self, corner, threshold=0.01):
-        # identify the reference coordinate as the inflection point
-
-        # Step 1: Compute slope
-        slope = np.gradient(corner.data[:, 0])
-
-        # Step 2: Compute the second derivative (curvature)
-        curvature = np.gradient(slope)
-
-        # Step 3: Check if criteria is more than threshold
-        # print('Max inflection value is ',np.nanmax(abs(np.gradient(np.gradient(curvature)))), ': Threshold ',threshold)
-        if np.nanmax(abs(np.gradient(np.gradient(curvature)))) > threshold:
-            # compute index of inflection point
-            largest_inflection_idx = np.nanargmax(
-                abs(np.gradient(np.gradient(curvature)))
-            )
-
-            r = corner.data[
-                largest_inflection_idx, 0
-            ]  # Radial distance at the largest curvature
-            theta = corner.data[
-                largest_inflection_idx, 1
-            ]  # Angle at the largest curvature
-            return r, theta, largest_inflection_idx
-
-        else:
-            return None, None, None  # No inflection points found
-
-    class GPC_input_output:
-        def __init__(self, data, label):
-            """
-            Initializes an observation with data and a label.
-
-            Parameters:
-            data (matrix): The observation data (e.g., a matrix).
-            data_filled (matrix): The observation data after zero offset and making nan's mean
-            label (str): The label associated with the observation.
-            ne_representative: representative northings and eastings location
-            """
-            self.data = data
-            self.data_filled = self._fill_nan(data)
-            self.label = label
-            self.ne_representative = None
-            # make filled and zero offset version
-
-        def _fill_nan(self, data):
-            data_filled = np.copy(data)
-            mean = np.nanmean(data[:, 0])
-            for i in range(len(data[:, 1])):
-                if np.isnan(data[i, 0]):
-                    data_filled[i, 0] = 0
-                else:
-                    data_filled[i, 0] = data[i, 0] - mean
-            return data_filled
-
-    def create_training_data(self, env_map, lidar, sigma_observe):
-        # decide some random position and angular offsets to make sure the training data is varied
-        pos_noise_std = 0.1
-        heading_noise_std = 10
-
-        # create a containor to store the GPC training data
-        corner_training = []
-        p = Vector(3)
-        z_lm = Vector(2)
-
-        for dist in np.arange(0.1, 0.5, 0.2):
-            for i in range(40):
-                # determine basic pose for each corner
-                if i <= 10:  # southwest corner
-                    p[0] = 0.0 + dist
-                    p[1] = 0.0 + dist
-                    p[2] = np.deg2rad(225)
-                elif i <= 20:  # northwest corner
-                    p[0] = 2.0 - dist
-                    p[1] = 0.0 + dist
-                    p[2] = np.deg2rad(315)
-                elif i <= 30:  # northeast corner
-                    p[0] = 2.0 - dist
-                    p[1] = 2.0 - dist
-                    p[2] = np.deg2rad(45)
-                else:
-                    p[0] = 0.0 + dist
-                    p[1] = 2.0 - dist
-                    p[2] = np.deg2rad(135)
-
-                # add random offsets
-                p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
-                p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
-                p[2] += np.deg2rad(
-                    np.random.normal(-heading_noise_std, heading_noise_std)
-                )
-
-                # compute observations with noise
-                observation, _ = lidar_scan(p, env_map, lidar, sigma_observe)
-                if (
-                    observation is not None
-                    or not np.isnan(observation.data_filled[:, 0]).any()
-                ):
-                    # check if it is a corner with the inflection point
-                    new_observation = self.GPC_input_output(observation, None)
-
-                    threshold = 0.001  # can reduce to make less conservative
-                    z_lm[0], z_lm[1], loc = self.find_corner(new_observation, threshold)
-
-                    # if the bepoke model says returns a location, add to training data
-                    if loc is not None:
-                        # label corner and add to corner training set
-                        new_observation.label = "corner"
-                        new_observation.ne_representative = z_lm
-                        # print('Map observation made at, Northings = ',new_observation.ne_representative[0],'m, Eastings =',new_observation.ne_representative[1],'m')
-                        corner_training.append(new_observation)
-
-        # decide some random position and angular offsets to make sure the training data is varied
-        for i in range(40):
-            # determine basic pose for each wall
-            if i <= 10:  # west wall
-                p[0] = 0.8
-                p[1] = 0.4
-                p[2] = np.deg2rad(0)
-            elif i <= 20:  # north wall
-                p[0] = 1.6
-                p[1] = 0.8
-                p[2] = np.deg2rad(90)
-            elif i <= 30:  # east
-                p[0] = 1.2
-                p[1] = 1.6
-                p[2] = np.deg2rad(180)
-            else:
-                p[0] = 0.4
-                p[1] = 1.2
-                p[2] = np.deg2rad(270)
-
-            # add random offsets
-            p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
-            p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
-            p[2] += np.deg2rad(np.random.normal(-heading_noise_std, heading_noise_std))
-
-            # compute observations with noise
-            observation, _ = lidar_scan(p, env_map, lidar, sigma_observe)
-
-            if (
-                observation is not None
-                or not np.isnan(observation.data_filled[:, 0]).any()
-            ):
-                # check if it is a corner with the inflection point
-                new_observation = self.GPC_input_output(observation, None)
-                threshold = 0.01  # can reduce to make less conservative
-                _, _, loc = self.find_corner(new_observation, threshold)
-
-                # if no corner is found, register as a not corner for the training
-                if loc is None:
-                    new_observation.label = "not corner"
-                    corner_training.append(new_observation)
-        return corner_training
 
     def run(self, time_to_run=-1):
         self.start_time = datetime.utcnow().timestamp()
@@ -508,7 +357,37 @@ class LaptopPilot:
             self.lidar_sub.stop()
             self.groundtruth_sub.stop()
             self.true_wheel_speed_sub.stop()
+    def run_classifier(self):
 
+
+        observation, _ = lidar_scan(p_eb, self.lidar_data, self.lidar, self.sigma_observe)
+
+        if (observation is not None and not np.isnan(observation).any() and self.gpc_corner is not None):
+            # Wrap the observation in GPC_input_output class
+            new_observation = GPC_input_output(observation, None)
+            
+            # Use classifier to judge if it is a corner or not, can increase this to be more conservative
+
+            # Check if the observation is classified as a corner
+            prediction = self.gpc_corner.predict([new_observation.data_filled[:, 0]])
+            if prediction[0] == "corner":
+                threshold = 0.01
+                z_lm = Vector(2)
+                z_lm[0], z_lm[1], loc = GPC_input_output.find_corner(new_observation, threshold)
+                
+                if loc is not None:
+                    # Convert polar coordinates to cartesian in sensor frame
+                    new_observation.ne_representative=self.lidar.rangeangle_to_loc(p_eb,z_lm)
+                    
+                    # Convert to environment frame using current robot pose
+                    H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
+                    print('Map observation made at, Northings = ',new_observation.ne_representative[0],'m, Eastings =',new_observation.ne_representative[1],'m')
+
+        t_em = Vector[2]
+        t_em[0] = new_observation.ne_representative[0]
+        t_em[1] = new_observation.ne_representative[1]
+        return t_em
+    
     def infinite_loop(self):
         """Main control loop
 
@@ -549,55 +428,7 @@ class LaptopPilot:
                 self.initialise_pose = False
                 self.generate_trajectory()
 
-                # train Gaussian Process Classifier
-                m_x = []
-                m_y = []
-                for x in np.arange(0, 2, 0.01):
-                    m_x.append(x)
-                    m_y.append(0)  # west wall
-                for x in np.arange(0, 2, 0.01):
-                    m_x.append(x)
-                    m_y.append(2)  # east wall
-                for y in np.arange(0, 2, 0.01):
-                    m_x.append(0)
-                    m_y.append(y)  # south wall
-                for y in np.arange(0, 2, 0.01):
-                    m_x.append(2)
-                    m_y.append(y)  # north wall
-
-                environment_map = l2m([m_x, m_y])
-                corner_training = self.create_training_data(
-                    environment_map, self.lidar, self.sigma_observe
-                )
-                # for i in range(len(corner_training)):
-                #     print(
-                #         "Entry:",
-                #         i,
-                #         ", Class",
-                #         corner_training[i].label,
-                #         ", Size",
-                #         corner_training[i].data_filled[:, 0].size,
-                #     )
-                #     print("Data", corner_training[i].data_filled[:, 0])
-                # preallocate memory for the training data, inputs are each scan, outputs are the class
-                X_train = np.full(
-                    (len(corner_training), corner_training[0].data_filled[:, 0].size),
-                    None,
-                )
-                y_train = np.full(len(corner_training), None, dtype=object)
-
-                # populate with the training data
-                for i in range(len(corner_training)):
-                    X_train[i, :] = corner_training[i].data_filled[:, 0]
-                    y_train[i] = corner_training[i].label
-
-                # train the classifier
-                kernel = 1.0 * RBF(1.0)
-                self.gpc_corner = GaussianProcessClassifier(
-                    kernel=kernel, random_state=0
-                ).fit(X_train, y_train)
-                # print(gpc_corner.score(X_train, y_train))
-                # print(gpc_corner.classes_)
+                
 
         # > Think < #
         ################################################################################
@@ -637,39 +468,13 @@ class LaptopPilot:
 
             p_robot, self.sigma_xy, dp, p_gt = rigid_body_kinematics(p_robot, u, dt)
             # print("Estimated northings: ", p_robot[0,0], "m; Estimated eastings: ", p_robot[1, 0], "m; Estimated yaw:", p_robot[2,0], "rad;")
-
-            # update for show_laptop.py
+                    # update for show_laptop.py
             self.est_pose_northings_m = p_robot[0, 0]
             self.est_pose_eastings_m = p_robot[1, 0]
             self.est_pose_yaw_rad = p_robot[2, 0]
 
-            observation, _ = lidar_scan(
-                p_robot, self.lidar_data, self.lidar, self.sigma_observe
-            )
-            if (
-                observation is not None
-                or not np.isnan(observation.data_filled[:, 0]).any()
-            ):
-                new_observation = self.GPC_input_output(observation, None)
-                new_observation.label = self.gpc_corner.classes_[
-                    np.argmax(
-                        self.gpc_corner.predict_proba(
-                            [new_observation.data_filled[:, 0]]
-                        )
-                    )
-                ]
-                if new_observation.label == "corner":
-                    r, theta, idx = self.find_corner(new_observation)
-                    if r is not None:
-                        # Convert polar coordinates to cartesian in sensor frame
-                        x_l, y_l = polar2cartesian(r, theta)
-                        
-                        # Convert to environment frame using current robot pose
-                        H_eb = HomogeneousTransformation(p_robot[0:2], p_robot[2]) 
-                        t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
-                        
-                        print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
-
+            t_em = run_classifier()
+            
             msg = self.pose_parse(
                 [
                     datetime.utcnow().timestamp(),
