@@ -16,17 +16,8 @@ from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
 from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
-from plot_feeg6043 import show_information
-
-from graph_slam_2d import GraphSLAM2D
-import g2o
-from helper_plotting_functions import plot_slam2d
-
-
-# Landmark sensing noise
-noise = 0.02
-
-slam = GraphSLAM2D(verbose=True)
+from model_feeg6043 import graphslam_frontend
+from plot_feeg6043 import plot_2dframe, sigma_contour
 
 
 class LaptopPilot:
@@ -34,55 +25,6 @@ class LaptopPilot:
     This class controls a differential drive robot using visual feedback from ArUco markers
     and wheel encoder measurements. It implements trajectory following with feedback control.
     """
-    def information_vector(n_pose, pose_size, n_landmark, landmark_size, node_intensity): 
-
-        dim = n_pose*pose_size+n_landmark*landmark_size
-        b = Vector(dim)
-
-        for n in range(n_pose+n_landmark):
-            if n < n_pose:
-                i = n*pose_size
-                b[i:i+pose_size] = node_intensity  # nodes
-            else:
-                l = (n-n_pose)*landmark_size + (n_pose*pose_size)
-                b[l:l+landmark_size] = node_intensity  # nodes
-        return b
-
-
-    def information_matrix(n_pose, pose_size, n_landmark, landmark_size, observations, node_intensity, motion_intensity, observation_intensity):
-
-        dim = n_pose*pose_size+n_landmark*landmark_size
-        H = Matrix(dim, dim)
-
-        for n in range(n_pose+n_landmark):
-            if n < n_pose:  # diagonal blocks representing poses
-                i = n*pose_size
-                H[i:i+pose_size, i:i+pose_size] = node_intensity  # nodes
-            else:  # diagonal blocks representing landmarks
-                l = (n-n_pose)*landmark_size + (n_pose*pose_size)
-                H[l:l+landmark_size, l:l+landmark_size] = node_intensity  # nodes 
-
-        # motion connects adjascent poses
-        for n in range(n_pose-1):
-            i = n*pose_size
-            j = (n+1)*pose_size
-            H[i:i+pose_size, j:j+pose_size] = motion_intensity  # nodes
-            H[j:j+pose_size, i:i+pose_size] = motion_intensity  # nodes
-
-        for k in range(len(observations[1])):
-            pose = observations[1][k]  # kth pose (poses are second list entry)
-            landmark = observations[3][k]  # kth landmark (poses are fourth list entry)
-
-            for n in range(n_pose):
-                for m in range(n_landmark):
-                    if n == pose and m == landmark:
-                        i = n*pose_size
-                        l = n_pose*pose_size+m*landmark_size
-                        H[i:i+pose_size, l:l+landmark_size] = observation_intensity  # nodes   
-                        H[l:l+landmark_size, i:i+pose_size] = observation_intensity  # nodes  
-        return H
-
-
 
     def __init__(self, simulation):
         """
@@ -200,7 +142,7 @@ class LaptopPilot:
         # The state vector contains all variables we're tracking:
         # [North position, East position, Heading angle, Forward velocity, Angular velocity]
 
-        # Index names for the state vector (G code more readable)
+        # Index names for the state vector (makes code more readable)
         self.N = 0      # North position index
         self.E = 1      # East position index
         self.G = 2      # Heading (gamma) angle index
@@ -210,14 +152,40 @@ class LaptopPilot:
         # Initialize the state vector with 5 elements
         self.state = Vector(5)
 
+
+        # ============ LOGGING AND DEBUGGING ============
+        self.aruco_count = 0  # Count of ArUco measurements received
+        self.loop_count = 0   # Count of control loops executed
+
+        # Data logger to save sensor data for later analysis
+        self.datalog = DataLogger(log_dir="logs")
+
+
+        # ============ ROS-STYLE COMMUNICATION SETUP ============
+        # Publishers send commands to the robot
+        self.wheel_speed_pub = Publisher(
+            "/wheel_speeds_cmd", Vector3Stamped, ip=self.robot_ip
+        )
+
+
+        
          # ============ SLAM SETUP ============
 
         # Create a GraphSLAM2D object for SLAM
-        self.slam = GraphSLAM2D(verbose=True)
+        graph = graphslam_frontend()
         
         # Add first fixed pose at origin (anchors the map)
-        initial_pose = g2o.SE2()
-        self.slam.add_fixed_pose(initial_pose)
+        p = Vector(3)
+        p[0] = 0  # Northings
+        p[1] = 0  # Eastings
+        p[2] = np.deg2rad(0)  # Heading (rad)
+        print('3x1 state vector:\n', p, '\n')
+
+        self.sigma_xy = Matrix(3, 3)
+        x = p[0:2].tolist()
+        s = self.sigma_xy[0:2, 0:2].tolist()
+        e_i = sigma_contour([x[1], x[0]], [[s[1][1], s[1][0]], [s[0][1], s[0][0]]], 'b')
+
 
 
         # Motion model linear noise due to v and w
@@ -251,21 +219,7 @@ class LaptopPilot:
 
         # SLAM observations list [type, poses, type, landmarks] 
         self.slam_observations = ['pose', [], 'landmark', []]
-        
-
-        # ============ LOGGING AND DEBUGGING ============
-        self.aruco_count = 0  # Count of ArUco measurements received
-        self.loop_count = 0   # Count of control loops executed
-
-        # Data logger to save sensor data for later analysis
-        self.datalog = DataLogger(log_dir="logs")
-
-
-        # ============ ROS-STYLE COMMUNICATION SETUP ============
-        # Publishers send commands to the robot
-        self.wheel_speed_pub = Publisher(
-            "/wheel_speeds_cmd", Vector3Stamped, ip=self.robot_ip
-        )
+        self.p_gt = Vector(3)
 
         # Subscribers receive data from the robot
         self.true_wheel_speed_sub = Subscriber(
@@ -346,9 +300,6 @@ class LaptopPilot:
 
         # Remove any invalid measurements (NaN values)
         self.lidar_data = self.lidar_data[~np.isnan(self.lidar_data).any(axis=1)]
-
-        # Corner Detection
-        #  if detected
 
         # Log the data
         self.datalog.log(msg, topic_name="/lidar")
@@ -484,7 +435,12 @@ class LaptopPilot:
 
         # Update position using rigid body kinematics
         # This handles the special case when angular velocity is zero
-        p = rigid_body_kinematics(p, u, dt)
+      
+        p, self.sigma_xy, self.p_gt = rigid_body_kinematics(p, u, dt=10, sigma_motion=self.sigma_motion, sigma_xy=self.sigma_xy)
+
+
+
+        rigid_body_kinematics(mu,u,dt=0.1,mu_gt=None,sigma_motion=Matrix(3,2),sigma_xy=Matrix(3,3)):
 
         # Create new state vector with updated position and velocities
         new_state = np.vstack((p, u))
