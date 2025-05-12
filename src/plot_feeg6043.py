@@ -1,5 +1,5 @@
 from matplotlib import pyplot as plt
-from math_feeg6043 import Vector,Matrix,Identity,Transpose,Inverse,v2t,t2v,HomogeneousTransformation, polar2cartesian,gaussian, eigsorted
+from math_feeg6043 import Vector,Matrix,Identity,Transpose,Inverse,v2t,l2m,t2v,HomogeneousTransformation, polar2cartesian,gaussian, eigsorted
 import matplotlib.patches as patches
 import matplotlib as mpl
 import numpy as np
@@ -24,9 +24,11 @@ class plot_2dframe:
     'Points are defined as homogeneous vectors relative to a homogeneous matrix (i.e., pose) '
     'edge_flag toggles whether lines between poses, or a pose and a point are shown          '
 
-    def __init__(self, metadata, h, edge_flag = False, legend_flag = True):
-        
-        if metadata[0]=='point_only':            
+    def __init__(self, metadata, h, edge_flag = False, legend_flag = True, compact_flag = False):
+
+        self.compact_flag = compact_flag
+
+        if metadata[0]=='point_only':
             self.H=HomogeneousTransformation().H
             self.t=h[0]            
         
@@ -51,7 +53,7 @@ class plot_2dframe:
         self.edge_flag=edge_flag
 
         # plot
-        self._fixed_frame()
+        if self.compact_flag == False: self._fixed_frame()
         
         if metadata[0]=='point' or metadata[0]=='map' or metadata[0]=='point_only':        
             self._point()
@@ -88,8 +90,13 @@ class plot_2dframe:
                 size = 0.1
                 colour = 'k'            
             elif self.object_type == 'point' or self.object_type == 'point_only': 
+
                 size = 0.05
-                colour = 'r'            
+                colour = 'r'
+                if self.compact_flag == True:
+                    size = 0.02
+                    colour = 'g'            
+
 
             circle = plt.Circle((c[1], c[0]), size, color=colour, label=self.id1)
             plt.gca().add_patch(circle)
@@ -97,6 +104,16 @@ class plot_2dframe:
                 
             H_ = HomogeneousTransformation()
             H_.H=self.H
+
+            # visualise the edge (or line) connecting point id1 and pose id0
+            if self.edge_flag == True:                
+                H_ = HomogeneousTransformation()
+                H_.H=self.H            
+                                    
+                if self.compact_flag == True: plt.plot([H_.t[1],c[1]],[H_.t[0],c[0]], 'g--', linewidth = 0.2)
+                else: plt.plot([H_.t[1],c[1]],[H_.t[0],c[0]], 'r--', linewidth = 0.5)
+
+            
             origin = Vector(2)
                 
             origin[0] = H_.t[0]
@@ -104,10 +121,12 @@ class plot_2dframe:
                 
             xhat = Vector(2)
             xhat[0] = 1
+            if self.compact_flag == True: xhat[0] = 0.2
             xhat = v2t(xhat)            
                 
             yhat = Vector(2)
-            yhat[1] = 1        
+            yhat[1] = 1      
+            if self.compact_flag == True: yhat[1] = 0.2
             yhat = v2t(yhat)
                 
             xhat=H_.H_R@xhat
@@ -118,14 +137,24 @@ class plot_2dframe:
 
             if self.object_type == 'point' or self.object_type == 'map':            
                 if np.all(H_.H == HomogeneousTransformation().H):
-                    plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2, color='k')
-                    plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1, color='k')
-                    circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color='k', label=self.id0)
+                    if self.compact_flag == True:
+                        plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.05, color='b')
+                        plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.02, color='b')
+                        circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.02, color='b', label=self.id0)
+                    else:
+                        plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2, color='k')
+                        plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1, color='k')
+                        circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color='k', label=self.id0)
 
                 else:
-                    plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2, color='b')
-                    plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1, color='b')
-                    circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color='b', label=self.id0)
+                    if self.compact_flag == True:
+                        plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.05, color='b')
+                        plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.02, color='b')
+                        circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.02, color='b', label=self.id0)
+                    else:
+                        plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2, color='b')
+                        plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1, color='b')
+                        circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color='b', label=self.id0)
                 plt.gca().add_patch(circle)                                
 
                 
@@ -134,7 +163,8 @@ class plot_2dframe:
             H_ = HomogeneousTransformation()
             H_.H=self.H            
                                 
-            plt.plot([H_.t[1],c[1]],[H_.t[0],c[0]], 'r--', linewidth = 1)
+            if self.compact_flag == True: plt.plot([H_.t[1],c[1]],[H_.t[0],c[0]], 'g--', linewidth = 0.5)
+            else: plt.plot([H_.t[1],c[1]],[H_.t[0],c[0]], 'r--', linewidth = 1)
             
     def _pose(self):
         # plot pose id0 and pose id1 that it moves to
@@ -143,14 +173,17 @@ class plot_2dframe:
             if self.object_type == 'pose':                
                 colour = 'b'    
                 unit_factor=1
+                if self.compact_flag == True: unit_factor=0.2
 
             elif self.object_type == 'pose_gt':                 
                 colour = 'g'            
-                unit_factor=0.5
+                unit_factor=1
+                if self.compact_flag == True: unit_factor=0.2
                 
             elif self.object_type == 'pose_ref':                 
                 colour = 'r'            
-                unit_factor=0.5                
+                unit_factor=1                
+                if self.compact_flag == True: unit_factor=0.2
                 
 
             H0_ = HomogeneousTransformation()
@@ -162,10 +195,12 @@ class plot_2dframe:
                 
             xhat = Vector(2)
             xhat[0] = unit_factor
+            if self.compact_flag == True: xhat[0]=0.2
             xhat = v2t(xhat)            
                 
             yhat = Vector(2)
             yhat[1] = unit_factor
+            if self.compact_flag == True: yhat[1]=0.2
             yhat = v2t(yhat)
                 
             xhat=H0_.H_R@xhat
@@ -176,7 +211,7 @@ class plot_2dframe:
                 
             plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2*unit_factor, color=colour)
             plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1*unit_factor, color=colour)
-            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color=colour, label=self.id0)
+            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.02, color=colour, label=self.id0)
             plt.gca().add_patch(circle)
             
             H1_ = HomogeneousTransformation()
@@ -188,10 +223,12 @@ class plot_2dframe:
                 
             xhat = Vector(2)
             xhat[0] = unit_factor
+            if self.compact_flag == True: xhat[0]=0.2
             xhat = v2t(xhat)            
                 
             yhat = Vector(2)
             yhat[1] = unit_factor
+            if self.compact_flag == True: yhat[1]=0.2
             yhat = v2t(yhat)
                 
             xhat=H1_.H_R@xhat
@@ -202,7 +239,7 @@ class plot_2dframe:
                 
             plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2*unit_factor, color=colour)
             plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1*unit_factor, color=colour)
-            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color=colour, label=self.id1)
+            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.02, color=colour, label=self.id1)
             plt.gca().add_patch(circle)
 
             # visualise the edge (or line) connecting pose id0 and pose id1
@@ -218,17 +255,21 @@ class plot_2dframe:
             if self.object_type == 'pose':                
                 colour = 'b'    
                 unit_factor=1
+                if self.compact_flag == True: unit_factor=0.2
 
             elif self.object_type == 'pose_gt':                 
                 colour = 'g'            
                 unit_factor=0.5
+                if self.compact_flag == True: unit_factor=0.1
                 
             elif self.object_type == 'pose_ref':                 
                 colour = 'r'            
-                unit_factor=0.5                
+                unit_factor=0.5
+                if self.compact_flag == True: unit_factor=0.2
             elif self.object_type == 'pose_ends':  
                 colour = 'r'            
-                unit_factor=1                                
+                unit_factor=1
+                if self.compact_flag == True: unit_factor=0.2
                 
 
             H0_ = HomogeneousTransformation()
@@ -254,7 +295,7 @@ class plot_2dframe:
                 
             plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2*unit_factor, color='c')
             plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1*unit_factor, color='c')
-            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color='c', label=self.id0)
+            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.02, color='c', label=self.id0)
             plt.gca().add_patch(circle)
             
             H1_ = HomogeneousTransformation()
@@ -266,10 +307,12 @@ class plot_2dframe:
                 
             xhat = Vector(2)
             xhat[0] = unit_factor
+            if self.compact_flag == True: xhat[0]=0.2
             xhat = v2t(xhat)            
                 
             yhat = Vector(2)
             yhat[1] = unit_factor
+            if self.compact_flag == True: yhat[1]=0.2
             yhat = v2t(yhat)
                 
             xhat=H1_.H_R@xhat
@@ -280,7 +323,7 @@ class plot_2dframe:
                 
             plt.arrow(*origin.reshape(2)[::-1], *xhat.reshape(2)[::-1], head_width=0.2*unit_factor, color=colour)
             plt.arrow(*origin.reshape(2)[::-1], *yhat.reshape(2)[::-1], head_width=0.1*unit_factor, color=colour)
-            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.05, color=colour, label=self.id1)
+            circle = plt.Circle((*origin.reshape(2)[::-1], *origin.reshape(2)[::-1]), 0.02, color=colour, label=self.id1)
             plt.gca().add_patch(circle)
 
             # visualise the edge (or line) connecting pose id0 and pose id1
@@ -302,10 +345,12 @@ class plot_2dframe:
                 
             xhat = Vector(2)
             xhat[0] = 1
+            if self.compact_flag == True: xhat[0]=0.2
             xhat = v2t(xhat)            
                 
             yhat = Vector(2)
             yhat[1] = 1
+            if self.compact_flag == True: yhat[1]=0.2
             yhat = v2t(yhat)
                 
             xhat=H0_.H_R@xhat
@@ -327,11 +372,13 @@ class plot_2dframe:
             origin[1] = H1_.t[1]
                 
             xhat = Vector(2)
-            xhat[0] = 0.2
+            xhat[0] = 1
+            if self.compact_flag == True: xhat[0]=0.2
             xhat = v2t(xhat)            
                 
             yhat = Vector(2)
-            yhat[1] = 0.2
+            yhat[1] = 1
+            if self.compact_flag == True: yhat[1]=0.2
             yhat = v2t(yhat)
                 
             xhat=H1_.H_R@xhat
@@ -1452,17 +1499,17 @@ def plot_observation_uncertainty(sigma_observe,z,n=100):
         m[0] = xy[0][0]
         m[1] = xy[1][0]
         
-        cf=plot_2dframe(['map','b','m0'],[H_eb.H,v2t(m)],True)        
+        cf=plot_2dframe(['map','b','m0'],[H_eb.H,v2t(m)],True,False,False)        
         cf._fixed_frame()#plt.plot(0,0,'bo',markersize = 6)
         plt.axis('equal')
         plt.show()
 
 
-def show_observation(H_eb,t_bm,sigma,feature_label,ax, track_lines = True):
+def show_observation(H_eb,t_bm,sigma,feature_label,ax, track_lines = True, compact_flag = False):
     
     t_bm=(v2t(t_bm))
 
-    cf=plot_2dframe(['point','b',feature_label],[H_eb.H,t_bm], track_lines, False)        
+    cf=plot_2dframe(['point','b',feature_label],[H_eb.H,t_bm], track_lines, False, compact_flag)
         
     sigma_em = Matrix(2,2)
     sigma_em = H_eb.R@sigma@H_eb.R.T
@@ -1589,7 +1636,7 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
             x = (graph.pose[i][0:2]).tolist()
             s = (graph.pose_covariance[i])[0:2,0:2].tolist()
 
-            e=sigma_contour([x[1],x[0]],[[s[1][1],s[1][0]],[s[0][1],s[0][0]]],'g')
+            e=sigma_contour([x[1],x[0]],[[s[1][1],s[1][0]],[s[0][1],s[0][0]]],'b')
             e.set_facecolor('none')
             ax.add_patch(e)            
 
@@ -1600,7 +1647,7 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
             x = (graph.pose[j][0:2]).tolist()
             s = (graph.pose_covariance[j])[0:2,0:2].tolist()
 
-            e=sigma_contour([x[1],x[0]],[[s[1][1],s[1][0]],[s[0][1],s[0][0]]],'g')
+            e=sigma_contour([x[1],x[0]],[[s[1][1],s[1][0]],[s[0][1],s[0][0]]],'b')
             e.set_facecolor('none')
             ax.add_patch(e)            
 
@@ -1630,4 +1677,61 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
             unique_labels[label] = handle
 
     plt.legend(handles=unique_labels.values(), labels=unique_labels.keys(),bbox_to_anchor=(1.05, 1.0),loc="upper left")
-    plt.show()    
+    plt.show()
+
+def show_scan(p_eb, lidar, observations, ax, show_lines = True):
+    """ Plots observations, field of view and robot pose
+    """
+
+    ######################## Calculate FOV    
+    range_max = lidar.distance_range[1]
+    range_min = lidar.distance_range[0]    
+    fov = lidar.scan_fov
+        
+    r_ = []
+    theta_ = []    
+    
+    # for field of view
+    theta = np.linspace(-fov / 2, fov / 2, 30)    
+        
+    for i in theta:
+        r_.append(range_max)
+        theta_.append(i)        
+    for i in reversed(theta):
+        r_.append(range_min)
+        theta_.append(i)    
+    r_.append(range_max)
+    theta_.append(-fov/2)
+
+    fov = l2m([r_,theta_])
+    ######################## Plot the FOV        
+    
+    t_lm = Vector(2) # lidar frame measurement placeholder    
+    t_em = Vector(2) # environment frame measurement
+    
+    fov_x = []
+    fov_y = []
+
+    H_eb = HomogeneousTransformation(p_eb[0:2],p_eb[2])
+        
+    for z_fov in fov:    
+        t_lm[0],t_lm[1] = polar2cartesian(z_fov[0],z_fov[1])      
+        t_em = t2v((H_eb.H@lidar.H_bl.H)@v2t(t_lm))
+    
+        fov_x.append(t_em[0])
+        fov_y.append(t_em[1])  
+        
+    if show_lines == True: plt.plot(fov_y, fov_x,'orange')
+    
+
+    if len(observations) != 0:            
+        for z_lm in observations:    
+            t_lm[0],t_lm[1] = polar2cartesian(z_lm[0],z_lm[1])
+            show_observation(H_eb,t2v(lidar.H_bl.H@v2t(t_lm)),Matrix(2,2),None, ax, show_lines, compact_flag=True)        
+        
+    else:        
+        cf=plot_2dframe(['pose','b','b'],[H_eb.H,H_eb.H],False,False,True)
+        
+    plt.xlabel('Eastings, m')
+    plt.ylabel('Northings, m')
+    plt.axis('equal')

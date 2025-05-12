@@ -1,3 +1,6 @@
+
+import g2o
+
 class GraphSLAM2D:
     def __init__(self, verbose=False) -> None:
         '''

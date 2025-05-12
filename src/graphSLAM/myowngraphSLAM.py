@@ -16,9 +16,9 @@ from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
 from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
+from plot_feeg6043 import show_information
 
 from graph_slam_2d import GraphSLAM2D
-
 import g2o
 from helper_plotting_functions import plot_slam2d
 
@@ -34,6 +34,55 @@ class LaptopPilot:
     This class controls a differential drive robot using visual feedback from ArUco markers
     and wheel encoder measurements. It implements trajectory following with feedback control.
     """
+    def information_vector(n_pose, pose_size, n_landmark, landmark_size, node_intensity): 
+
+        dim = n_pose*pose_size+n_landmark*landmark_size
+        b = Vector(dim)
+
+        for n in range(n_pose+n_landmark):
+            if n < n_pose:
+                i = n*pose_size
+                b[i:i+pose_size] = node_intensity  # nodes
+            else:
+                l = (n-n_pose)*landmark_size + (n_pose*pose_size)
+                b[l:l+landmark_size] = node_intensity  # nodes
+        return b
+
+
+    def information_matrix(n_pose, pose_size, n_landmark, landmark_size, observations, node_intensity, motion_intensity, observation_intensity):
+
+        dim = n_pose*pose_size+n_landmark*landmark_size
+        H = Matrix(dim, dim)
+
+        for n in range(n_pose+n_landmark):
+            if n < n_pose:  # diagonal blocks representing poses
+                i = n*pose_size
+                H[i:i+pose_size, i:i+pose_size] = node_intensity  # nodes
+            else:  # diagonal blocks representing landmarks
+                l = (n-n_pose)*landmark_size + (n_pose*pose_size)
+                H[l:l+landmark_size, l:l+landmark_size] = node_intensity  # nodes 
+
+        # motion connects adjascent poses
+        for n in range(n_pose-1):
+            i = n*pose_size
+            j = (n+1)*pose_size
+            H[i:i+pose_size, j:j+pose_size] = motion_intensity  # nodes
+            H[j:j+pose_size, i:i+pose_size] = motion_intensity  # nodes
+
+        for k in range(len(observations[1])):
+            pose = observations[1][k]  # kth pose (poses are second list entry)
+            landmark = observations[3][k]  # kth landmark (poses are fourth list entry)
+
+            for n in range(n_pose):
+                for m in range(n_landmark):
+                    if n == pose and m == landmark:
+                        i = n*pose_size
+                        l = n_pose*pose_size+m*landmark_size
+                        H[i:i+pose_size, l:l+landmark_size] = observation_intensity  # nodes   
+                        H[l:l+landmark_size, i:i+pose_size] = observation_intensity  # nodes  
+        return H
+
+
 
     def __init__(self, simulation):
         """
@@ -171,11 +220,38 @@ class LaptopPilot:
         self.slam.add_fixed_pose(initial_pose)
 
 
+        # Motion model linear noise due to v and w
+        self.sigma_motion = Matrix(3, 2)
+        self.sigma_motion[0, 0] = 0.1*2    # impact of v linear velocity on x
+        self.sigma_motion[0, 1] = np.deg2rad(0.1)**2  # impact of w angular velocity on x
+        self.sigma_motion[1, 0] = 0.3**2   # impact of v linear velocity on y
+        self.sigma_motion[1, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on y
+        self.sigma_motion[2, 0] = 0.1**2   # impact of v linear velocity on gamma
+        self.sigma_motion[2, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on gamma
+        print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
+        # Observation model linear noise with range
+        self.sigma_observe = Matrix(2, 2)
+        self.sigma_observe[0, 0] = 0.1**2  # 10% of range
+        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[1, 0] = np.deg2rad(5)**2  # 5 degree per metre range
+        self.sigma_observe[1, 1] = 0
+        print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
+        # SLAM tracking variables
+        self.last_slam_update_time = None
+        self.slam_update_frequency = 1.0  # Update SLAM every 1 second
+        self.landmarks = {}  # Dictionary to track observed landmarks
+        self.wall_point_threshold = 0.1  # Distance threshold to consider points part of same wall
 
+        # SLAM intensity values
+        self.node_intensity = 3
+        self.motion_intensity = 1
+        self.observation_intensity = 2
 
-
+        # SLAM observations list [type, poses, type, landmarks] 
+        self.slam_observations = ['pose', [], 'landmark', []]
+        
 
         # ============ LOGGING AND DEBUGGING ============
         self.aruco_count = 0  # Count of ArUco measurements received
@@ -270,6 +346,9 @@ class LaptopPilot:
 
         # Remove any invalid measurements (NaN values)
         self.lidar_data = self.lidar_data[~np.isnan(self.lidar_data).any(axis=1)]
+
+        # Corner Detection
+        #  if detected
 
         # Log the data
         self.datalog.log(msg, topic_name="/lidar")
