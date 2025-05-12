@@ -8,3 +8,5 @@ src/__pycache__/
 # VS Code settings
 .vscode/
 *.code-workspace
+src/__pycache__/laptop.cpython-312.pyc
+src/__pycache__/model_feeg6043.cpython-312.pyc
