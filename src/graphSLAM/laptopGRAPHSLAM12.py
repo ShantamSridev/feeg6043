@@ -14,16 +14,14 @@ from zeroros import Subscriber, Publisher
 from zeroros.messages import LaserScan, Vector3Stamped, Pose, PoseStamped, Header, Quaternion
 from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
-from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation, t2v, v2t
+from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation, t2v, v2t, polar2cartesian
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
 from model_feeg6043 import graphslam_frontend, lidar_scan   
 from classifier import GPC_input_output, load_model
-from plot_feeg6043 import plot_2dframe, sigma_contour, show_information
+from plot_feeg6043 import plot_2dframe, sigma_contour
 import copy
-from model_feeg6043 import graphslam_backend
-from scipy.linalg import cholesky
-
-
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 class LaptopPilot:
     """
@@ -102,8 +100,8 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path = [0.0, 1.0, 1.0, 0.0]
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0]
+        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0]
         self.relative_path = True  # If True, path is relative to robot's starting position
 
 
@@ -233,10 +231,6 @@ class LaptopPilot:
         self.p_gt = Vector(3)
 
 
-        self.gpc_corner = load_model()
-        if self.gpc_corner is None:
-            print("Warning: No trained model found. Corner detection will not work.")
-        ################ initialise graph ################
         print('Start graph data association')
         self.graph = graphslam_frontend()
         self.graph.anchor(self.sigma)
@@ -397,7 +391,161 @@ class LaptopPilot:
         self.path.turning_arcs(self.turning_radius)
         self.path.wp_id = 0  # Start at first waypoint
 
+    def find_corner(self, corner, threshold=0.01):
+        # identify the reference coordinate as the inflection point
 
+        # Step 1: Compute slope
+        slope = np.gradient(corner.data[:, 0])
+
+        # Step 2: Compute the second derivative (curvature)
+        curvature = np.gradient(slope)
+
+        # Step 3: Check if criteria is more than threshold
+        # print('Max inflection value is ',np.nanmax(abs(np.gradient(np.gradient(curvature)))), ': Threshold ',threshold)
+        if np.nanmax(abs(np.gradient(np.gradient(curvature)))) > threshold:
+            # compute index of inflection point
+            largest_inflection_idx = np.nanargmax(
+                abs(np.gradient(np.gradient(curvature)))
+            )
+
+            r = corner.data[
+                largest_inflection_idx, 0
+            ]  # Radial distance at the largest curvature
+            theta = corner.data[
+                largest_inflection_idx, 1
+            ]  # Angle at the largest curvature
+            return r, theta, largest_inflection_idx
+
+        else:
+            return None, None, None  # No inflection points found
+
+    class GPC_input_output:
+        def __init__(self, data, label):
+            """
+            Initializes an observation with data and a label.
+
+            Parameters:
+            data (matrix): The observation data (e.g., a matrix).
+            data_filled (matrix): The observation data after zero offset and making nan's mean
+            label (str): The label associated with the observation.
+            ne_representative: representative northings and eastings location
+            """
+            self.data = data
+            self.data_filled = self._fill_nan(data)
+            self.label = label
+            self.ne_representative = None
+            # make filled and zero offset version
+
+        def _fill_nan(self, data):
+            data_filled = np.copy(data)
+            mean = np.nanmean(data[:, 0])
+            for i in range(len(data[:, 1])):
+                if np.isnan(data[i, 0]):
+                    data_filled[i, 0] = 0
+                else:
+                    data_filled[i, 0] = data[i, 0] - mean
+            return data_filled
+
+    def create_training_data(self, env_map, lidar, sigma_observe):
+        # decide some random position and angular offsets to make sure the training data is varied
+        pos_noise_std = 0.1
+        heading_noise_std = 10
+
+        # create a containor to store the GPC training data
+        corner_training = []
+        p = Vector(3)
+        z_lm = Vector(2)
+
+        for dist in np.arange(0.1, 0.5, 0.2):
+            for i in range(40):
+                # determine basic pose for each corner
+                if i <= 10:  # southwest corner
+                    p[0] = 0.0 + dist
+                    p[1] = 0.0 + dist
+                    p[2] = np.deg2rad(225)
+                elif i <= 20:  # northwest corner
+                    p[0] = 2.0 - dist
+                    p[1] = 0.0 + dist
+                    p[2] = np.deg2rad(315)
+                elif i <= 30:  # northeast corner
+                    p[0] = 2.0 - dist
+                    p[1] = 2.0 - dist
+                    p[2] = np.deg2rad(45)
+                else:
+                    p[0] = 0.0 + dist
+                    p[1] = 2.0 - dist
+                    p[2] = np.deg2rad(135)
+
+                # add random offsets
+                p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
+                p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
+                p[2] += np.deg2rad(
+                    np.random.normal(-heading_noise_std, heading_noise_std)
+                )
+
+                # compute observations with noise
+                observation, _ = lidar_scan(p, env_map, lidar, sigma_observe)
+                if (
+                    observation is not None
+                    or not np.isnan(observation.data_filled[:, 0]).any()
+                ):
+                    # check if it is a corner with the inflection point
+                    new_observation = self.GPC_input_output(observation, None)
+
+                    threshold = 0.001  # can reduce to make less conservative
+                    z_lm[0], z_lm[1], loc = self.find_corner(new_observation, threshold)
+
+                    # if the bepoke model says returns a location, add to training data
+                    if loc is not None:
+                        # label corner and add to corner training set
+                        new_observation.label = "corner"
+                        new_observation.ne_representative = z_lm
+                        # print('Map observation made at, Northings = ',new_observation.ne_representative[0],'m, Eastings =',new_observation.ne_representative[1],'m')
+                        corner_training.append(new_observation)
+
+        # decide some random position and angular offsets to make sure the training data is varied
+        for i in range(40):
+            # determine basic pose for each wall
+            if i <= 10:  # west wall
+                p[0] = 0.8
+                p[1] = 0.4
+                p[2] = np.deg2rad(0)
+            elif i <= 20:  # north wall
+                p[0] = 1.6
+                p[1] = 0.8
+                p[2] = np.deg2rad(90)
+            elif i <= 30:  # east
+                p[0] = 1.2
+                p[1] = 1.6
+                p[2] = np.deg2rad(180)
+            else:
+                p[0] = 0.4
+                p[1] = 1.2
+                p[2] = np.deg2rad(270)
+
+            # add random offsets
+            p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
+            p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
+            p[2] += np.deg2rad(np.random.normal(-heading_noise_std, heading_noise_std))
+
+            # compute observations with noise
+            observation, _ = lidar_scan(p, env_map, lidar, sigma_observe)
+
+            if (
+                observation is not None
+                or not np.isnan(observation.data_filled[:, 0]).any()
+            ):
+                # check if it is a corner with the inflection point
+                new_observation = self.GPC_input_output(observation, None)
+                threshold = 0.01  # can reduce to make less conservative
+                _, _, loc = self.find_corner(new_observation, threshold)
+
+                # if no corner is found, register as a not corner for the training
+                if loc is None:
+                    new_observation.label = "not corner"
+                    corner_training.append(new_observation)
+        return corner_training
+    
     def run(self, time_to_run=-1):
         """
         Main execution loop of the robot controller.
@@ -474,56 +622,7 @@ class LaptopPilot:
         new_state[3:5] = u    # New velocities from control input
 
         return new_state
-    
 
-
-
-    def run_classifier(self, p_eb):
-        print("run_classifier called")
-        print("lidar_data type:", type(self.lidar_data))
-        print("lidar_data is None:", self.lidar_data is None)
-
-        if self.lidar_data is None:
-            print("Skipping classifier - no lidar data available")
-            t_em = Vector(2)
-            t_em[0] = 0.0
-            t_em[1] = 0.0
-            return t_em, False
-    
-        observation, _ = lidar_scan(p_eb, self.lidar_data, self.lidar, self.sigma_observe)
-        flag = False
-        t_em = Vector(2)
-        t_em[0] = 0.0  # Initialize with default values
-        t_em[1] = 0.0
-
-        if (observation is not None and not np.isnan(observation).any() and self.gpc_corner is not None):
-            # Wrap the observation in GPC_input_output class
-            new_observation = GPC_input_output(observation, None)
-            
-            # Check if the observation is classified as a corner
-            prediction = self.gpc_corner.predict([new_observation.data_filled[:, 0]])
-            if prediction[0] == "corner":
-                flag = True
-                threshold = 0.06
-                z_lm = Vector(2)
-                z_lm[0], z_lm[1], loc = GPC_input_output.find_corner(new_observation, threshold)
-                
-                if loc is not None:
-                    # Convert polar coordinates to cartesian in sensor frame
-                    new_observation.ne_representative = self.lidar.rangeangle_to_loc(p_eb, z_lm)
-                    
-                    if new_observation.ne_representative is not None:
-                        # Convert to environment frame using current robot pose
-                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
-                        print('Map observation made at, Northings = ', new_observation.ne_representative[0], 'm, Eastings =', new_observation.ne_representative[1], 'm')
-                        
-                        # Only set t_em if we have a valid corner detection
-                        t_em[0] = new_observation.ne_representative[0]
-                        t_em[1] = new_observation.ne_representative[1]
-                    else:
-                        flag = False
-
-        return t_em, flag
 
 
     def infinite_loop(self):
@@ -587,6 +686,56 @@ class LaptopPilot:
             # Generate trajectory based on starting position
             self.generate_trajectory()
 
+            print("TRAINING GAUSSIAN MODEL, PLEASE WAIT")
+            # train Gaussian Process Classifier
+            m_x = []
+            m_y = []
+            for x in np.arange(0, 2, 0.01):
+                m_x.append(x)
+                m_y.append(0)  # west wall
+            for x in np.arange(0, 2, 0.01):
+                m_x.append(x)
+                m_y.append(2)  # east wall
+            for y in np.arange(0, 2, 0.01):
+                m_x.append(0)
+                m_y.append(y)  # south wall
+            for y in np.arange(0, 2, 0.01):
+                m_x.append(2)
+                m_y.append(y)  # north wall
+
+            environment_map = l2m([m_x, m_y])
+            corner_training = self.create_training_data(
+                environment_map, self.lidar, self.sigma_observe
+            )
+            # for i in range(len(corner_training)):
+            #     print(
+            #         "Entry:",
+            #         i,
+            #         ", Class",
+            #         corner_training[i].label,
+            #         ", Size",
+            #         corner_training[i].data_filled[:, 0].size,
+            #     )
+            #     print("Data", corner_training[i].data_filled[:, 0])
+            # preallocate memory for the training data, inputs are each scan, outputs are the class
+            X_train = np.full(
+                (len(corner_training), corner_training[0].data_filled[:, 0].size),
+                None,
+            )
+            y_train = np.full(len(corner_training), None, dtype=object)
+
+            # populate with the training data
+            for i in range(len(corner_training)):
+                X_train[i, :] = corner_training[i].data_filled[:, 0]
+                y_train[i] = corner_training[i].label
+
+            # train the classifier
+            kernel = 1.0 * RBF(1.0)
+            self.gpc_corner = GaussianProcessClassifier(
+                kernel=kernel, random_state=0
+            ).fit(X_train, y_train)
+            # print(gpc_corner.score(X_train, y_train))
+            # print(gpc_corner.classes_)
             # Mark initialization as complete
             self.initialise_pose = False
 
@@ -642,7 +791,38 @@ class LaptopPilot:
             # IF CORNER DETECTED, UPDATE THE GRAPH
             print("Before calling run_classifier")
             print("p_eb:", p_eb)
-            t_em, flag = self.run_classifier(p_eb)
+            flag = False
+            t_em = Vector(2)
+            t_em[0] = 0
+            t_em[1] = 0
+            observation, _ = lidar_scan(
+                p_eb, self.lidar_data, self.lidar, self.sigma_observe
+            )
+            if (
+                observation is not None
+                or not np.isnan(observation.data_filled[:, 0]).any()
+            ):
+                new_observation = self.GPC_input_output(observation, None)
+                new_observation.label = self.gpc_corner.classes_[
+                    np.argmax(
+                        self.gpc_corner.predict_proba(
+                            [new_observation.data_filled[:, 0]]
+                        )
+                    )
+                ]
+                if new_observation.label == "corner":
+                    flag = True
+                    r, theta, idx = self.find_corner(new_observation)
+                    if r is not None:
+                        # Convert polar coordinates to cartesian in sensor frame
+                        x_l, y_l = polar2cartesian(r, theta)
+                        
+                        # Convert to environment frame using current robot pose
+                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
+                        t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
+                        
+                        print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
+            #t_em, flag = self.run_classifier(p_eb)
             print("After run_classifier, flag:", flag)
 
 
@@ -651,8 +831,13 @@ class LaptopPilot:
             #CONDITION FOR WHEN A LANDMARK IS OBSERVED
             
             if flag == True:
+                print("POINT1")
+                _, _, t_lm, sigma_xy_lm = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
 
-                _, _, t_lm, self.sigma_xy = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
+                self.sigma_xy[0,0] = sigma_xy_lm[0,0]
+                self.sigma_xy[1,1] = sigma_xy_lm[1,1]
+
+                print("POINT2")
 
                 if (p_eb[0] < 1 and p_eb[1] < 1):
                     landmark_id = 0
@@ -664,8 +849,7 @@ class LaptopPilot:
                     landmark_id = 2
 
                 elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
-                    landmark_id = 3
-                    
+                    landmark_id = 3 
                 # adds to the graph as a landmark observation together with its ID
                 self.graph.observation(t_em, self.sigma_xy, landmark_id, t_lm)  # Task
                 print('Observation of Landmark ID', landmark_id)
@@ -687,10 +871,7 @@ class LaptopPilot:
                 self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
 
 
-
-
-################################## BACKEND ######################################
-
+            print("s3")
             if self.completed == True:
     
                 # completes the motion
@@ -700,150 +881,9 @@ class LaptopPilot:
 
                 self.graph.construct_graph()
 
-                from datetime import datetime
-
-                initial_residual = 100  # just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
-                initial_flag = True
-
-                residual_threshold = 1E-12  # if result changes by <1
-                delta_threshold = 1/10  # if result changes by <1
-                lim_iterations = 20
-
-                n_iterations = 0
-                delta_residual = initial_residual
-                residual = initial_residual
-
-                visualise_flag = False
-                iteration_continue = True
-                residual_continue = True
-                converge_continue = True
-
-                # if any of the conditions become false, then while loop will exit
-                cpu_start_solver = datetime.now()
-
-
-                graph_init = copy.deepcopy(self.graph)
-                graph_validate = copy.deepcopy(self.graph)
-                graph_opt = graphslam_backend(self.graph)
-
-                while iteration_continue and residual_continue and converge_continue:
-                    graph_opt.solve()
-
-                    prev_residual = residual
-                    residual = graph_opt.residual
-
-                    delta_residual = abs((prev_residual - residual) / prev_residual)
-                    n_iterations += 1
-
-                    print('**************  Residual = ', residual, ' ***************')
-                    residual_continue = (residual > residual_threshold)
-                    print('Residual above threshold?', residual_continue)
-
-                    print('************** Iteration = ', n_iterations, ' ***************')
-                    iteration_continue = (n_iterations <= lim_iterations)
-                    print('Iterations below limit?', iteration_continue)
-
-                    print('********* Delta Residual = ', delta_residual, ' ***************')
-                    converge_continue = (delta_residual > delta_threshold)
-                    print('Residual still changing?', converge_continue)
-
-                    # reconstruct the graph with these nodes
-                    graph_opt = graphslam_frontend(graph_opt)   # Task
-                    graph_opt.construct_graph()  # Task
-                    graph_opt = graphslam_backend(graph_opt)    # Task
-
-                cpu_end_solver = datetime.now()
-                delta = cpu_end_solver - cpu_start_solver
-                print('********* Final solution took:', (delta.total_seconds()), 's ***************')
 
 
 
-                #show the original graph
-                graph_opt = graphslam_backend(graph_init)
-                print('Original graph has:')
-                print('Poses',graph_init.n)
-                print('Landmarks',graph_init.m)
-                print('Edges',graph_init.e)
-
-
-                #show the reduced form
-                pose_graph = graph_opt.reduce2pose()
-                print('Reduced graph has:')
-                print('Poses',pose_graph.n)
-                print('Landmarks',pose_graph.m)
-                print('Edges',pose_graph.e)
-
-                # shows information vector and matrix
-                visualise_flag = True 
-                pose_graph = graph_opt.reduce2pose(visualise_flag)
-                print('Grey cells indicate information that has been modified through the graph reduction')
-
-
-
-                initial_residual = 100 #just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
-                initial_flag = True
-
-                residual_threshold = 1E-12 #if result changes by <1
-                delta_threshold = 1/1000 #if result changes by <1
-                lim_iterations = 20
-
-                n_iterations = 0
-                delta_residual = initial_residual
-                residual = initial_residual
-
-                visualise_flag = False
-                iteration_continue = True 
-                residual_continue = True
-                converge_continue = True
-
-                # reset the pose graph (full_graph_ should be unaffected by previous calculations)
-                pose_graph = graph_opt.reduce2pose(visualise_flag)
-                l = graph_opt.n*3
-
-                # if any of the conditions become false, then while loop will exit
-                cpu_start_solver = datetime.now()
-
-                while iteration_continue and residual_continue and converge_continue:
-                    
-                    pose_graph.solve()    
-                    
-                    prev_residual = residual
-                    residual = pose_graph.residual
-
-                    delta_residual = abs((prev_residual - residual) /prev_residual)
-                    n_iterations += 1
-
-                    print('**************  Residual = ',residual,' ***************')        
-                    residual_continue = (residual > residual_threshold)
-                    print('Residual above threshold?',residual_continue)    
-                    
-                    print('************** Iteration = ',n_iterations,' ***************')
-                    iteration_continue = (n_iterations <= lim_iterations)
-                    print('Iterations below limit?',iteration_continue)
-
-                    print('********* Delta Residual = ', delta_residual, ' ***************')
-                    converge_continue = (delta_residual > delta_threshold)
-                    print('Residual still changing?', converge_continue)
-
-                    #reconstruct the graph with these nodes
-                    graph_opt.state_vector[0:l] = pose_graph.state_vector # Task
-                    graph_opt.state_vector[l:] = Inverse(graph_opt.H[l:,l:])@(graph_opt.b[l:]+graph_opt.H[l:,0:l]@graph_opt.state_vector[0:l])
-                    graph_opt = graphslam_frontend(graph_opt)
-                    graph_opt.construct_graph()
-                    graph_opt = graphslam_backend(graph_opt) 
-                    
-                    pose_graph = graph_opt.reduce2pose(visualise_flag) # Task
-
-                cpu_end_solver = datetime.now()
-
-                show_information(pose_graph.H,pose_graph.n,3,pose_graph.m,2, matrix_compare = graph_init.H[0:l,0:l])
-                    
-
-                delta =  cpu_end_solver - cpu_start_solver
-                print('********* Final solution took:',(delta.total_seconds()),'s ***************')                                                                
-
-################################## BACKEND ######################################
- 
 
             # Log estimated pose
             est_msg = self.pose_parse([datetime.utcnow().timestamp(), 
