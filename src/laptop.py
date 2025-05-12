@@ -18,408 +18,8 @@ from joblib import load
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import ConstantKernel, RBF
 from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
-from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control, t2v, v2t
+from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control, t2v, v2t, lidar_scan
 
-
-# def show_scan(p_eb, lidar, observations, show_lines = True):
-#     """ Plots observations, field of view and robot pose
-#     """
-
-#     ######################## Calculate FOV    
-#     range_max = lidar.distance_range[1]
-#     range_min = lidar.distance_range[0]    
-#     fov = lidar.scan_fov
-        
-#     r_ = []
-#     theta_ = []    
-    
-#     # for field of view
-#     theta = np.linspace(-fov / 2, fov / 2, 30)    
-        
-#     for i in theta:
-#         r_.append(range_max)
-#         theta_.append(i)        
-#     for i in reversed(theta):
-#         r_.append(range_min)
-#         theta_.append(i)    
-#     r_.append(range_max)
-#     theta_.append(-fov/2)
-
-#     fov = l2m([r_,theta_])
-#     ######################## Plot the FOV        
-    
-#     t_lm = Vector(2) # lidar frame measurement placeholder    
-#     t_em = Vector(2) # environment frame measurement
-    
-#     fov_x = []
-#     fov_y = []
-
-#     H_eb = HomogeneousTransformation(p_eb[0:2],p_eb[2])
-        
-#     for z_fov in fov:    
-#         t_lm[0],t_lm[1] = polar2cartesian(z_fov[0],z_fov[1])      
-#         t_em = t2v((H_eb.H@lidar.H_bl.H)@v2t(t_lm))
-    
-#         fov_x.append(t_em[0])
-#         fov_y.append(t_em[1])  
-        
-#     if show_lines == True: plt.plot(fov_y, fov_x,'orange')
-
-#     if len(observations) != 0:            
-#         for z_lm in observations:    
-#             t_lm[0],t_lm[1] = polar2cartesian(z_lm[0],z_lm[1])
-#             show_observation(H_eb,t2v(lidar.H_bl.H@v2t(t_lm)),Matrix(2,2),None,ax, show_lines)        
-        
-#     else:        
-#         cf=plot_2dframe(['pose','b','b'],[H_eb.H,H_eb.H],False,False)
-        
-#     plt.xlabel('Eastings, m')
-#     plt.ylabel('Northings, m')
-#     plt.axis('equal')
-
-# def lidar_scan(p_eb, environment_map, lidar, sigma_observe):
-#     """ Gets observations from the robot pose and the map.
-    
-#     Parameters
-#     -----------
-#     p_eb = [3 x 1] Vector of floats
-#         The robot pose in the e frame as
-#             [[x
-#               y
-#               gamma]]
-#     environment_map = [l x 2] Matrix of floats
-#         A list observable element in the robots surroundings
-#         where each element is a transposed 2x1 vector of x, y coordinates in the environment frame
-#             [[x
-#               y]].T
-#     lidar = RangeAngleKinematics class
-#         A member of the RangeAngleKinematics that determines sensor properties
-#         range [min, max] in metres, and scan_fov in radians
-#         e.g., RangeAngleKinematics(x_bl, y_bl, distance_range = [0.1, 1], scan_fov = np.deg2rad(90)) 
-        
-#     sigma_observe = [2 x 2] Matrix of floats
-#         Observation model for linear noise with range
-#         [[sigma_xr sigma_xtheta]
-#          [sigma_yr sigma_ytheta]]
-        
-#     Returns
-#     -------
-#     observations: [n_beams x 2] Matrix of floats
-#         The observations as an array of (range, bearing) points. 
-#     observations_std: [n_beams x 1] Matrix of floats
-#         The observations set as an array of (range_std, bearing) points.         
-#     """
-
-#     m_range = [] # range and bearing to map elements
-#     m_bearing = []    
-    
-#     z_range = [] # range and bearing measurements (resamples at resolution and with some noise)
-#     z_range_std = [] # range and bearing measurements (resamples at resolution and with some noise)
-#     z_bearing = []        
-    
-#     for i in range(len(environment_map)):
-#         t_em = environment_map[[i],:].T
-#         z_lm, sigma_rtheta, t_lm, sigma_xy = lidar.loc_to_rangeangle(p_eb, t_em, sigma_observe)
-#         m_range.append(z_lm[0])
-#         m_bearing.append(z_lm[1])   
-       
-#     #sampling the map
-#     bearing_resolution = np.linspace(-lidar.scan_fov/2,lidar.scan_fov/2,lidar.n_beams)
-
-#     #picks the nearest map entity and adds range based noise. Bearing noise is simulated to be half the beam width (i.e., (fov/n_beams)) 
-#     for theta in bearing_resolution:        
-#         if ~np.all(np.isnan(m_bearing)):
-#             i = np.nanargmin(abs((theta -m_bearing)))
-        
-#             if abs(theta - m_bearing[i]) < lidar.scan_fov/(2*lidar.n_beams):
-#                 z_range.append(m_range[i]+np.random.normal(0,m_range[i]*sigma_observe[0,0],1))
-#                 z_range_std.append(abs(m_range[i]*sigma_observe[0,0]))
-#                 z_bearing.append(theta)
-#             else:
-#                 z_range.append(np.nan)
-#                 z_range_std.append(np.nan)
-#                 z_bearing.append(theta)
-#         else:
-#             z_range.append(np.nan)
-#             z_range_std.append(np.nan)
-#             z_bearing.append(theta)
-   
-#     observations = l2m([z_range,z_bearing]) 
-#     observations_std = l2m([z_range_std, z_bearing]) 
-    
-#     return observations, observations_std
-
-
-# def train_classifier():
-#     # set the gpc kernel as the rbf kernel
-#     rbf = ConstantKernel(1.0) * RBF(length_scale=1.0)
-#     gpc = GaussianProcessClassifier(kernel=rbf,random_state=0)
-#     ######################## Set the robot pose b in the e frame ##################
-#     p = Vector(3); 
-
-#     p[0] = -0.7 #Northings
-#     p[1] = -0.1 #Eastings
-#     p[2] = np.deg2rad(270) #Heading (rad)
-#     print('3x1 state vector:\n',p,'\n')
-#     H_eb = HomogeneousTransformation(p[0:2],p[2])
-#     #############################################################################
-
-#     #########observation model linear noise with range###############
-#     sigma_observe = Matrix(2,2)
-#     sigma_observe[0,0] = 0.01 #1% of range
-#     sigma_observe[0,1] = 0
-#     sigma_observe[1,0] = np.deg2rad(0.1) #0.1 degree per metre range
-#     sigma_observe[1,1] = 0
-#     print('2x2 measurement noise model:\n',sigma_observe,'\n')
-#     #############################################################################
-#     # simulate and environment
-#     m_x = []
-#     m_y = []
-
-#     for x in np.arange(-1, 1, 0.01):
-#         m_x.append(x)
-#         m_y.append(-1) #west wall      
-#     for x in np.arange(-1, 1, 0.01):
-#         m_x.append(x)
-#         m_y.append(1) #east wall
-#     for y in np.arange(-1, 1, 0.01):
-#         m_x.append(-1)
-#         m_y.append(y) #south wall
-#     for y in np.arange(-1, 1, 0.01):
-#         m_x.append(1)
-#         m_y.append(y) #north wall
-
-#     environment_map = l2m([m_x,m_y])
-#     # compute observations with noise
-#     observation, _ = lidar_scan(p, environment_map, lidar, sigma_observe)
-
-#     # plot scan in the environment frame
-#     fig,ax = plt.subplots()
-#     show_scan(p, lidar, observation)
-#     ax.scatter(m_y, m_x,s=0.01)
-#     plt.show()
-
-#     # plot the raw sensor readings in cartesian coordinates
-#     plt.plot(np.rad2deg(observation[:, 1]), observation[:, 0], 'g.', label='Observations')
-#     plt.xlabel('Bearing (sensor frame), degrees')
-#     plt.ylabel('Range, m')
-#     plt.show()
-
-#     # plot the raw sensor readings in polar coordinates
-#     plt.polar(observation[:, 1], observation[:, 0], 'g.', label='Observations')  # Create polar plot
-#     plt.xlabel('Bearing (sensor frame), degrees')
-#     plt.ylabel('Range, m')
-#     plt.show()
-
-#     ##SET AS CORNER
-#     # store the data as an example of a 'corner' (label)
-#     corner_example = GPC_input_output(observation, 'corner')
-
-#     # run a bespoke corner detection algorithm (not GPC) to find a corner and return the inflection point as a landmark
-#     z_lm = Vector(2)
-#     z_lm[0], z_lm[1], loc = find_corner(corner_example)
-
-#     # update the landmark locations 
-#     corner_example.ne_representative = lidar.rangeangle_to_loc(p,z_lm)
-#     print('Map observation made at, Northings = ',corner_example.ne_representative[0],'m, Eastings =',corner_example.ne_representative[1],'m')
-
-
-#     # plot the raw sensor readings
-#     plt.plot(np.rad2deg(observation[:, 1]), observation[:, 0], 'g.', label='Observations')
-#     plt.plot(np.rad2deg(observation[loc, 1]), observation[loc, 0], 'ro', label='Corner landmark')
-#     plt.xlabel('Bearing (sensor frame), degrees')
-#     plt.ylabel('Range, m')
-#     plt.legend()
-#     plt.show()
-
-#     # Show the landmark in the e-frame
-#     H_el = HomogeneousTransformation()
-#     H_el.H = H_eb.H@lidar.H_bl.H
-
-#     # use the plot_2dframe function in plot_feeg6043
-#     plot_2dframe(['observation','b','l','m'],[H_eb.H,H_el.H,z_lm],True)
-#     plt.scatter(m_x, m_y,s=0.1)
-#     plt.axis('equal')
-#     plt.show()
-
-
-#     # decide some random position and angular offsets to make sure the training data is varied
-#     pos_noise_std = 0.1
-#     heading_noise_std = 10
-
-#     # create a containor to store the GPC training data
-#     corner_training = [corner_example]
-
-#     for i in range(40):    
-#         # determine basic pose for each corner
-#         if i<=10: # southwest corner
-#             p[0] = -0.5
-#             p[1] = -0.5
-#             p[2] = np.deg2rad(225)
-#         elif i<=20: # northwest corner
-#             p[0] = 0.5
-#             p[1] = -0.5
-#             p[2] = np.deg2rad(315)
-#         elif i<=30: # northwest corner
-#             p[0] = 0.5
-#             p[1] = 0.5
-#             p[2] = np.deg2rad(45)
-#         else:
-#             p[0] = -0.5
-#             p[1] = 0.5
-#             p[2] = np.deg2rad(135)
-
-#         # add random offsets
-#         p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
-#         p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
-#         p[2] += np.deg2rad(np.random.normal(-heading_noise_std, heading_noise_std))
-        
-#         # compute observations with noise
-#         observation, _ = lidar_scan(p, environment_map, lidar, sigma_observe)
-#         fig,ax = plt.subplots()
-#         show_scan(p, lidar, observation)
-#         ax.scatter(m_y, m_x,s=0.01)
-#         plt.show()
-
-#         # check if it is a corner with the inflection point
-#         new_observation = GPC_input_output(observation, None)
-        
-#         threshold = 0.01 # can reduce to make less conservative
-#         z_lm[0], z_lm[1], loc = find_corner(new_observation, threshold)
-        
-#         # if the bepoke model says returns a location, add to training data
-#         if loc is not None:
-#             # label corner and add to corner training set
-#             new_observation.label='corner'
-#             new_observation.ne_representative=z_lm
-#             print('Map observation made at, Northings = ',new_observation.ne_representative[0],'m, Eastings =',new_observation.ne_representative[1],'m')        
-#             corner_training.append(new_observation)
-            
-#             # show pose and landmark 
-#             H_eb = HomogeneousTransformation(p[0:2],p[2])
-#             H_el.H = H_eb.H@lidar.H_bl.H        
-#             plot_2dframe(['observation','b','l','m'],[H_eb.H,H_el.H,z_lm],True)
-#             plt.scatter(m_x, m_y,s=0.1)
-#             plt.axis('equal')
-#             plt.show()
-
-#     pos_noise_std = 0.1
-#     heading_noise_std = 10
-
-#     # decide some random position and angular offsets to make sure the training data is varied
-#     for i in range(40):    
-#         # determine basic pose for each wall
-#         if i<=10: # west wall
-#             p[0] = -0.2
-#             p[1] = -0.6
-#             p[2] = np.deg2rad(0)
-#         elif i<=20: # north wall
-#             p[0] = 0.6
-#             p[1] = -0.2
-#             p[2] = np.deg2rad(90)
-#         elif i<=30: # east
-#             p[0] = 0.2
-#             p[1] = 0.6
-#             p[2] = np.deg2rad(180)
-#         else:
-#             p[0] = -0.6
-#             p[1] = 0.2
-#             p[2] = np.deg2rad(270)
-
-#         # add random offsets
-#         p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
-#         p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
-#         p[2] += np.deg2rad(np.random.normal(-heading_noise_std, heading_noise_std))
-        
-#         # compute observations with noise
-#         observation, _ = lidar_scan(p, environment_map, lidar, sigma_observe)
-#         fig,ax = plt.subplots()
-#         show_scan(p, lidar, observation)
-#         ax.scatter(m_y, m_x,s=0.01)
-#         plt.show()
-
-#         # check if it is a corner with the inflection point
-#         new_observation = GPC_input_output(observation, None)    
-#         threshold = 0.01 # can reduce to make less conservative
-#         _, _, loc = find_corner(new_observation, threshold)    
-
-#         # if no corner is found, register as a not corner for the training
-#         if loc is None:        
-#             new_observation.label='not corner'        
-#             corner_training.append(new_observation)
-
-
-#     #TRAIN DATA
-#         # preallocate memory for the training data, inputs are each scan, outputs are the class
-#     X_train = np.full((len(corner_training), corner_training[0].data_filled[:,0].size), None)
-#     y_train = np.full(len(corner_training), None, dtype=object)
-
-#     # populate with the training data
-#     for i in range(len(corner_training)):
-#         X_train[i,:]= corner_training[i].data_filled[:,0]
-#         y_train[i]= corner_training[i].label
-
-#     # train the classifier
-#     kernel = 1.0 * RBF(1.0)
-#     gpc_corner = GaussianProcessClassifier(kernel=kernel,random_state=0).fit(X_train, y_train)
-#     print(gpc_corner.score(X_train, y_train))
-#     print(gpc_corner.classes_)
-
-#     # Obtain optimized kernel parameters
-#     sklearn_theta_1 = gpc_corner.kernel_.k2.get_params()['length_scale']
-#     sklearn_theta_0 = np.sqrt(gpc_corner.kernel_.k1.get_params()['constant_value'])
-
-#     print(f'Optimized theta = [{sklearn_theta_0:.3f}, {sklearn_theta_1:.3f}], negative log likelihood = {-gpc_corner.log_marginal_likelihood_value_:.3f}')
-
-# def find_corner(corner, threshold = 0.01):
-#     # identify the reference coordinate as the inflection point
-    
-#     # Step 1: Compute slope
-#     slope = np.gradient(corner.data[:, 0])
-    
-#     # Step 2: Compute the second derivative (curvature)
-#     curvature = np.gradient(slope)
-    
-#     # Step 3: Check if criteria is more than threshold    
-#     print('Max inflection value is ',np.nanmax(abs(np.gradient(np.gradient(curvature)))), ': Threshold ',threshold)
-#     if np.nanmax(abs(np.gradient(np.gradient(curvature)))) > threshold:
-#         # compute index of inflection point    
-#         largest_inflection_idx = np.nanargmax(abs(np.gradient(np.gradient(curvature))))
-        
-#         r = corner.data[largest_inflection_idx, 0]  # Radial distance at the largest curvature
-#         theta = corner.data[largest_inflection_idx, 1]  # Angle at the largest curvature
-#         return r, theta, largest_inflection_idx
-    
-#     else:
-#         return None, None, None  # No inflection points found
-
-# class GPC_input_output:
-#     def __init__(self, data, label):
-#         """
-#         Initializes an observation with data and a label.
-
-#         Parameters:
-#         data (matrix): The observation data (e.g., a matrix).
-#         data_filled (matrix): The observation data after zero offset and making nan's mean
-#         label (str): The label associated with the observation.
-#         ne_representative: representative northings and eastings location
-#         """
-#         self.data = data
-#         self.data_filled = self._fill_nan(data)
-#         self.label = label
-#         self.ne_representative = None 
-#         # make filled and zero offset version        
-        
-#     def _fill_nan(self,data):
-#         data_filled = np.copy(data)
-#         mean=np.nanmean(data[:,0])  
-#         for i in range(len(data[:,1])):
-#             if np.isnan(data[i,0]):
-#                 data_filled[i,0]=0
-#             else: 
-#                 data_filled[i,0]=data[i,0]-mean
-#         return data_filled
-    
 
 class LaptopPilot:
     def __init__(self, simulation):
@@ -505,7 +105,7 @@ class LaptopPilot:
         self.lidar_data = None
         lidar_xb = 0.07 # location of lidar centre in b-frame primary axis
         lidar_yb = 0.0 # location of lidar centre in b-frame secondary axis
-        self.lidar = RangeAngleKinematics(lidar_xb,lidar_yb)    
+        self.lidar = RangeAngleKinematics(lidar_xb, lidar_yb, n_beams=360)    
 
 
         # EKF 
@@ -556,6 +156,51 @@ class LaptopPilot:
         self.R[self.G, self.G] = self.R_G**2
         self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
         self.R[self.DOTG, self.DOTG] = self.dot_g_R_std**2
+
+        
+        #################### Noise Attributes #########################
+
+        # position uncertainty
+        self.sigma_xy = Matrix(3, 3)
+
+        # motion model linear noise due to v and w
+        self.sigma_motion = Matrix(3, 2)
+        self.sigma_motion[0, 0] = 0.1**2  # impact of v linear velocity on x
+        self.sigma_motion[0, 1] = (
+            np.deg2rad(0.1) ** 2
+        )  # impact of w angular velocity on x
+
+        self.sigma_motion[1, 0] = 0.1**2  # impact of v linear velocity on y
+        self.sigma_motion[1, 1] = (
+            np.deg2rad(0.1) ** 2
+        )  # impact of w angular velocity on y
+
+        self.sigma_motion[2, 0] = 0.1**2  # impact of v linear velocity on gamma
+        self.sigma_motion[2, 1] = (
+            np.deg2rad(0.1) ** 2
+        )  # impact of w angular velocity on gamma
+
+        # observation model linear noise with range
+        self.sigma_observe = Matrix(2, 2)
+        self.sigma_observe[0, 0] = 0.1**2  # 10% of range
+        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[1, 0] = np.deg2rad(0.1) ** 2  # 0.1 degree per metre range
+        self.sigma_observe[1, 1] = 0
+
+        # anchor constraint, matrix must be invertable
+        self.sigma_anchor = Matrix(3, 3)
+        self.sigma_anchor[0, 0] = 0.1
+        self.sigma_anchor[0, 1] = 0.01
+        self.sigma_anchor[1, 0] = 0.01
+        self.sigma_anchor[1, 1] = 0.1
+        self.sigma_anchor[0, 2] = 0.01
+        self.sigma_anchor[1, 2] = 0.01
+        self.sigma_anchor[2, 0] = 0.01
+        self.sigma_anchor[2, 1] = 0.01
+        self.sigma_anchor[2, 2] = 0.1
+
+        ######################## Graph SLAM ###########################
+        self.gpc_corner = None
         
         self.aruco_count = 0
         self.loop_count = 0
@@ -584,66 +229,281 @@ class LaptopPilot:
         self.measured_wheelrate_left = msg.vector.y
         self.datalog.log(msg, topic_name="/true_wheel_speeds")
 
+    # def lidar_scan(self, p_eb, environment_map, lidar, sigma_observe):
+    #     """ Gets observations from the robot pose and the map.
+        
+    #     Parameters
+    #     -----------
+    #     p_eb = [3 x 1] Vector of floats
+    #         The robot pose in the e frame as
+    #             [[x
+    #             y
+    #             gamma]]
+    #     environment_map = [l x 2] Matrix of floats
+    #         A list observable element in the robots surroundings
+    #         where each element is a transposed 2x1 vector of x, y coordinates in the environment frame
+    #             [[x
+    #             y]].T
+    #     lidar = RangeAngleKinematics class
+    #         A member of the RangeAngleKinematics that determines sensor properties
+    #         range [min, max] in metres, and scan_fov in radians
+    #         e.g., RangeAngleKinematics(x_bl, y_bl, distance_range = [0.1, 1], scan_fov = np.deg2rad(90)) 
+            
+    #     sigma_observe = [2 x 2] Matrix of floats
+    #         Observation model for linear noise with range
+    #         [[sigma_xr sigma_xtheta]
+    #         [sigma_yr sigma_ytheta]]
+            
+    #     Returns
+    #     -------
+    #     observations: [n_beams x 2] Matrix of floats
+    #         The observations as an array of (range, bearing) points. 
+    #     observations_std: [n_beams x 1] Matrix of floats
+    #         The observations set as an array of (range_std, bearing) points.         
+    #     """
+
+    #     m_range = [] # range and bearing to map elements
+    #     m_bearing = []    
+        
+    #     z_range = [] # range and bearing measurements (resamples at resolution and with some noise)
+    #     z_range_std = []
+    #     z_bearing = []        
+        
+    #     for i in range(len(environment_map)):
+    #         t_em = environment_map[[i],:].T
+    #         z_lm = lidar.loc_to_rangeangle(p_eb, t_em)
+    #         m_range.append(z_lm[0])
+    #         m_bearing.append(z_lm[1])   
+        
+    #     #sampling the map
+    #     bearing_resolution = np.linspace(-lidar.scan_fov/2,lidar.scan_fov/2,lidar.n_beams)
+
+    #     #picks the nearest map entity and adds range based noise. Bearing noise is simulated to be half the beam width (i.e., (fov/n_beams)) 
+    #     for theta in bearing_resolution:        
+    #         if ~np.all(np.isnan(m_bearing)):
+    #             i = np.nanargmin(abs((theta -m_bearing)))
+            
+    #             if abs(theta - m_bearing[i]) < lidar.scan_fov/(2*lidar.n_beams):
+    #                 z_range.append(m_range[i]+np.random.normal(0,m_range[i]*sigma_observe[0,0],1))
+    #                 z_range_std.append(abs(m_range[i]*sigma_observe[0,0]))
+    #                 z_bearing.append(theta)
+    #             else:
+    #                 z_range.append(np.nan)
+    #                 z_range_std.append(np.nan)
+    #                 z_bearing.append(theta)
+    #         else:
+    #             z_range.append(np.nan)
+    #             z_range_std.append(np.nan)
+    #             z_bearing.append(theta)
+    
+    #     observations = l2m([z_range,z_bearing]) 
+    #     observations_std = l2m([z_range_std, z_bearing]) 
+        
+    #     return observations, observations_std
+
+
     def lidar_callback(self, msg):
-        # … timestamp offset handling …
+        # This is a callback function that is called whenever a message is received
+        # print("Received lidar message", msg.header.seq)
+        if self.sim_init == True:
+            self.sim_time_offset = datetime.utcnow().timestamp() - msg.header.stamp
+            self.sim_init = False
 
-        # grab raw arrays
-        ranges = np.array(msg.ranges)       # length 120
-        angles = np.array(msg.angles)       # length 120
+        msg.header.stamp += self.sim_time_offset
 
-        # --- 1) figure out how many features the classifier wants ---
-        n_features = self.corner_clf.n_features_in_    # e.g. 30
+        self.lidar_timestamp_s = (
+            msg.header.stamp
+        )  # we want the lidar measurement timestamp here
 
-        # --- 2) pick that many indices evenly across your 120 beams ---
-        idxs = np.linspace(0, len(ranges)-1, n_features, dtype=int)
-        ranges_sub = ranges[idxs]
-        angles_sub = angles[idxs]  # you only need this if you want bearings later
-
-        # --- 3) zero-offset & fill NaNs exactly as in training ---
-        mean_r = np.nanmean(ranges_sub)
-        filled = np.where(np.isnan(ranges_sub), 0.0, ranges_sub - mean_r)
-
-        # --- 4) build the (1 × n_features) matrix for sklearn ---
-        X = filled.reshape(1, -1)
-
-        # --- 5) classify just that subsampled scan ---
-        probs = self.corner_clf.predict_proba(X)[0]
-        max_p = np.max(probs)
-        label = self.corner_clf.classes_[np.argmax(probs)]
-
-        # --- 6) simple print logic (no plotting) ---
-        threshold = 0.5
-        if max_p >= threshold:
-            print(f"New scan classified as '{label}' (P = {max_p:.3f}), full probs = {probs}")
-            if label == 'corner':
-                # find the inflection point on your subsampled ranges
-                slope     = np.gradient(filled)
-                curvature = np.gradient(slope)
-                inflect   = np.gradient(curvature)
-                max_inf   = np.max(np.abs(inflect))
-                inf_th    = 0.006
-
-                if max_inf > inf_th:
-                    i = np.argmax(np.abs(inflect))
-                    r_c = ranges_sub[i]
-                    θ_c = angles_sub[i]
-
-                    # project that beam into world coords
-                    p_eb = Vector(3)
-                    p_eb[0] = self.est_pose_northings_m
-                    p_eb[1] = self.est_pose_eastings_m
-                    p_eb[2] = self.est_pose_yaw_rad
-                    z = Vector(2); z[0], z[1] = r_c, θ_c
-                    ne = self.lidar.rangeangle_to_loc(p_eb, z)
-
-                    print(f" → Detected corner at North = {ne[0]:.3f} m, East = {ne[1]:.3f} m")
-                else:
-                    print(f" → No inflection (max {max_inf:.4f} < {inf_th})")
-        else:
-            print(f"No corner (max P={max_p:.3f} < {threshold})")
-
-        # … and finally keep your normal logging …
+        self.lidar_data = np.zeros(
+            (len(msg.ranges), 2)
+        )  # specify length of the lidar data
+        self.lidar_data[:, 0] = (
+            msg.ranges
+        )  # use ranges as a placeholder, workout northings in Task 4
+        self.lidar_data[:, 1] = (
+            msg.angles
+        )  # use angles as a placeholder, workout eastings in Task 4
         self.datalog.log(msg, topic_name="/lidar")
+
+        # b to e frame
+        p_eb = Vector(3)
+        p_eb[0] = self.measured_pose_northings_m
+        p_eb[1] = self.measured_pose_eastings_m
+        p_eb[2] = self.measured_pose_yaw_rad
+
+        # m to e frame
+        self.lidar_data = np.zeros((len(msg.ranges), 2))
+
+        z_lm = Vector(2)
+        # for each map measurement
+        for i in range(len(msg.ranges)):
+            z_lm[0] = msg.ranges[i]
+            z_lm[1] = msg.angles[i]
+
+            t_em = self.lidar.rangeangle_to_loc(p_eb, z_lm)
+
+            self.lidar_data[i, 0] = t_em[0]
+            self.lidar_data[i, 1] = t_em[1]
+
+        # this filters out any NaN
+        self.lidar_data = self.lidar_data[~np.isnan(self.lidar_data).any(axis=1)]
+
+
+    def find_corner(self, corner, threshold=0.01):
+        # identify the reference coordinate as the inflection point
+
+        # Step 1: Compute slope
+        slope = np.gradient(corner.data[:, 0])
+
+        # Step 2: Compute the second derivative (curvature)
+        curvature = np.gradient(slope)
+
+        # Step 3: Check if criteria is more than threshold
+        # print('Max inflection value is ',np.nanmax(abs(np.gradient(np.gradient(curvature)))), ': Threshold ',threshold)
+        if np.nanmax(abs(np.gradient(np.gradient(curvature)))) > threshold:
+            # compute index of inflection point
+            largest_inflection_idx = np.nanargmax(
+                abs(np.gradient(np.gradient(curvature)))
+            )
+
+            r = corner.data[
+                largest_inflection_idx, 0
+            ]  # Radial distance at the largest curvature
+            theta = corner.data[
+                largest_inflection_idx, 1
+            ]  # Angle at the largest curvature
+            return r, theta, largest_inflection_idx
+
+        else:
+            return None, None, None  # No inflection points found
+
+    class GPC_input_output:
+        def __init__(self, data, label):
+            """
+            Initializes an observation with data and a label.
+
+            Parameters:
+            data (matrix): The observation data (e.g., a matrix).
+            data_filled (matrix): The observation data after zero offset and making nan's mean
+            label (str): The label associated with the observation.
+            ne_representative: representative northings and eastings location
+            """
+            self.data = data
+            self.data_filled = self._fill_nan(data)
+            self.label = label
+            self.ne_representative = None
+            # make filled and zero offset version
+
+        def _fill_nan(self, data):
+            data_filled = np.copy(data)
+            mean = np.nanmean(data[:, 0])
+            for i in range(len(data[:, 1])):
+                if np.isnan(data[i, 0]):
+                    data_filled[i, 0] = 0
+                else:
+                    data_filled[i, 0] = data[i, 0] - mean
+            return data_filled
+
+    def create_training_data(self, env_map, lidar, sigma_observe):
+        # decide some random position and angular offsets to make sure the training data is varied
+        pos_noise_std = 0.1
+        heading_noise_std = 10
+
+        # create a containor to store the GPC training data
+        corner_training = []
+        p = Vector(3)
+        z_lm = Vector(2)
+
+        for dist in np.arange(0.1, 0.5, 0.2):
+            for i in range(40):
+                # determine basic pose for each corner
+                if i <= 10:  # southwest corner
+                    p[0] = 0.0 + dist
+                    p[1] = 0.0 + dist
+                    p[2] = np.deg2rad(225)
+                elif i <= 20:  # northwest corner
+                    p[0] = 2.0 - dist
+                    p[1] = 0.0 + dist
+                    p[2] = np.deg2rad(315)
+                elif i <= 30:  # northeast corner
+                    p[0] = 2.0 - dist
+                    p[1] = 2.0 - dist
+                    p[2] = np.deg2rad(45)
+                else:
+                    p[0] = 0.0 + dist
+                    p[1] = 2.0 - dist
+                    p[2] = np.deg2rad(135)
+
+                # add random offsets
+                p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
+                p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
+                p[2] += np.deg2rad(
+                    np.random.normal(-heading_noise_std, heading_noise_std)
+                )
+
+                # compute observations with noise
+                observation, _ = lidar_scan(p, env_map, lidar, sigma_observe)
+                if (
+                    observation is not None
+                    or not np.isnan(observation.data_filled[:, 0]).any()
+                ):
+                    # check if it is a corner with the inflection point
+                    new_observation = self.GPC_input_output(observation, None)
+
+                    threshold = 0.001  # can reduce to make less conservative
+                    z_lm[0], z_lm[1], loc = self.find_corner(new_observation, threshold)
+
+                    # if the bepoke model says returns a location, add to training data
+                    if loc is not None:
+                        # label corner and add to corner training set
+                        new_observation.label = "corner"
+                        new_observation.ne_representative = z_lm
+                        # print('Map observation made at, Northings = ',new_observation.ne_representative[0],'m, Eastings =',new_observation.ne_representative[1],'m')
+                        corner_training.append(new_observation)
+
+        # decide some random position and angular offsets to make sure the training data is varied
+        for i in range(40):
+            # determine basic pose for each wall
+            if i <= 10:  # west wall
+                p[0] = 0.8
+                p[1] = 0.4
+                p[2] = np.deg2rad(0)
+            elif i <= 20:  # north wall
+                p[0] = 1.6
+                p[1] = 0.8
+                p[2] = np.deg2rad(90)
+            elif i <= 30:  # east
+                p[0] = 1.2
+                p[1] = 1.6
+                p[2] = np.deg2rad(180)
+            else:
+                p[0] = 0.4
+                p[1] = 1.2
+                p[2] = np.deg2rad(270)
+
+            # add random offsets
+            p[0] += np.random.normal(-pos_noise_std, pos_noise_std)
+            p[1] += np.random.normal(-pos_noise_std, pos_noise_std)
+            p[2] += np.deg2rad(np.random.normal(-heading_noise_std, heading_noise_std))
+
+            # compute observations with noise
+            observation, _ = lidar_scan(p, env_map, lidar, sigma_observe)
+
+            if (
+                observation is not None
+                or not np.isnan(observation.data_filled[:, 0]).any()
+            ):
+                # check if it is a corner with the inflection point
+                new_observation = self.GPC_input_output(observation, None)
+                threshold = 0.01  # can reduce to make less conservative
+                _, _, loc = self.find_corner(new_observation, threshold)
+
+                # if no corner is found, register as a not corner for the training
+                if loc is None:
+                    new_observation.label = "not corner"
+                    corner_training.append(new_observation)
+        return corner_training
 
     def groundtruth_callback(self, msg):
         """This callback receives the odometry ground truth from the simulator."""
@@ -862,7 +722,53 @@ class LaptopPilot:
 
 
             #TRAINING LIDAR CLASSIFIER HERE
+            # train Gaussian Process Classifier
+            m_x = []
+            m_y = []
+            for x in np.arange(0, 2, 0.01):
+                m_x.append(x)
+                m_y.append(0)  # west wall
+            for x in np.arange(0, 2, 0.01):
+                m_x.append(x)
+                m_y.append(2)  # east wall
+            for y in np.arange(0, 2, 0.01):
+                m_x.append(0)
+                m_y.append(y)  # south wall
+            for y in np.arange(0, 2, 0.01):
+                m_x.append(2)
+                m_y.append(y)  # north wall
 
+            environment_map = l2m([m_x, m_y])
+            corner_training = self.create_training_data(
+                environment_map, self.lidar, self.sigma_observe
+            )
+            # for i in range(len(corner_training)):
+            #     print(
+            #         "Entry:",
+            #         i,
+            #         ", Class",
+            #         corner_training[i].label,
+            #         ", Size",
+            #         corner_training[i].data_filled[:, 0].size,
+            #     )
+            #     print("Data", corner_training[i].data_filled[:, 0])
+            # preallocate memory for the training data, inputs are each scan, outputs are the class
+            X_train = np.full(
+                (len(corner_training), corner_training[0].data_filled[:, 0].size),
+                None,
+            )
+            y_train = np.full(len(corner_training), None, dtype=object)
+
+            # populate with the training data
+            for i in range(len(corner_training)):
+                X_train[i, :] = corner_training[i].data_filled[:, 0]
+                y_train[i] = corner_training[i].label
+
+            # train the classifier
+            kernel = 1.0 * RBF(1.0)
+            self.gpc_corner = GaussianProcessClassifier(
+                kernel=kernel, random_state=0
+            ).fit(X_train, y_train)
 
             self.initialise_pose = False 
 
@@ -903,7 +809,25 @@ class LaptopPilot:
                 self.state , self.covariance  = self.extended_kalman_filter_update(self.state, self.covariance, z, h, Q)
 
             # take current pose estimate and update by twist
-            
+            observation, _ = lidar_scan(
+                self.state, self.lidar_data, self.lidar, self.sigma_observe
+            )
+            if (
+                observation is not None
+                or not np.isnan(observation.data_filled[:, 0]).any()
+            ):
+                new_observation = self.GPC_input_output(observation, None)
+                new_observation.label = self.gpc_corner.classes_[
+                    np.argmax(
+                        self.gpc_corner.predict_proba(
+                            [new_observation.data_filled[:, 0]]
+                        )
+                    )
+                ]
+                if new_observation.label == "corner":
+                    print(
+                        f"#######################\n\n CORNER DETECTED at {self.state}  \n\n#######################"
+                    )
             self.est_pose_northings_m = self.state[self.N,0]
             self.est_pose_eastings_m = self.state[self.E,0]
             self.est_pose_yaw_rad = self.state[self.G,0]
