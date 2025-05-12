@@ -435,13 +435,10 @@ class LaptopPilot:
 
         # Update position using rigid body kinematics
         # This handles the special case when angular velocity is zero
-      
-        p, self.sigma_xy, self.p_gt = rigid_body_kinematics(p, u, dt=10, sigma_motion=self.sigma_motion, sigma_xy=self.sigma_xy)
-
-
-
-        rigid_body_kinematics(mu,u,dt=0.1,mu_gt=None,sigma_motion=Matrix(3,2),sigma_xy=Matrix(3,3)):
-
+        print("before motion model")
+        p, self.sigma_xy, _, _ = rigid_body_kinematics(p, u, dt=10, sigma_motion=self.sigma_motion, sigma_xy=self.sigma_xy)  
+              
+        print("after motion model")
         # Create new state vector with updated position and velocities
         new_state = np.vstack((p, u))
         new_state[0:3] = p    # Updated position

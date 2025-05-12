@@ -22,11 +22,12 @@ from pglive.sources.live_plot import LiveScatterPlot
 from pglive.sources.live_plot_widget import LivePlotWidget
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt
-from graphSLAM.latestlaptopwithgraphslam import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
+# from graphSLAM.latestlaptopwithgraphslam import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
 # from benlaptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
 # from earliestlaptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
-from graphSLAM.myowngraphSLAM import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
+# from graphSLAM.myowngraphSLAM import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
 # from graphSLAM.latestlaptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
+from graphSLAM.latestlaptop_copy import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
 
 
 class Window(QWidget):
