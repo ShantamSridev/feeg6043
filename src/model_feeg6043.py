@@ -1024,6 +1024,7 @@ class TrajectoryGenerate():
         scheduled_time = 0 #s
         
         wp_progress_flag = False # flag to progress to next waypoint
+        flag_complete = False
 
         # check distance to the next waypoint
         distance_to_wp = np.sqrt((P[self.wp_id,0]-p_robot[0])**2+(P[self.wp_id,1]-p_robot[1])**2)
@@ -1053,7 +1054,10 @@ class TrajectoryGenerate():
                 
                 print('************************************************************')
                 print('Trajectory completed at:',self.t_complete,'s')    
-                print('************************************************************')                
+                print('************************************************************')           
+                flag_complete = True  
+            else:
+                flag_complete = False
         else:
             # if within acceptance radius, follow trajectory to next waypoint
             if distance_to_wp <= accept_radius:                
@@ -1083,7 +1087,7 @@ class TrajectoryGenerate():
                         for i in range(self.wp_id-1,len(Tp)): Tp[i]=Tp[i]+delay
                         if len(self.Tp_arc) == 1: self.Tp = copy.copy(Tp)
                         else: self.Tp_arc = copy.copy(Tp)                 
-         
+        return flag_complete
                 
     def _point_to_point(self, x_points,y_points, params, start_stationary = True, end_stationary = True):
 
@@ -1829,8 +1833,8 @@ class graphslam_frontend:
             dR_i_d_g_i = Matrix(2,2)
             dR_i_d_g_i[0,0] = -np.sin(X_i.gamma)
             dR_i_d_g_i[1,1] = -np.sin(X_i.gamma)
-            dR_i_d_g_i[0,1] = -np.cos(X_i.gamma)
-            dR_i_d_g_i[1,0] = np.cos(X_i.gamma)            
+            dR_i_d_g_i[0,1] = -np.cos(X_i.gamma)    #POSSIBLY FLIPPED
+            dR_i_d_g_i[1,0] = np.cos(X_i.gamma)   #POSSIBLY FLIPPED         
 
             A_il = Matrix(2,3)            
             A_il[0:2,0:2] = -X_i.R.T

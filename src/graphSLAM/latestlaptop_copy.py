@@ -14,11 +14,12 @@ from zeroros import Subscriber, Publisher
 from zeroros.messages import LaserScan, Vector3Stamped, Pose, PoseStamped, Header, Quaternion
 from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
-from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
+from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation, t2v, v2t
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
-from model_feeg6043 import graphslam_frontend
+from model_feeg6043 import graphslam_frontend, lidar_scan   
+from classifier import GPC_input_output, load_model
 from plot_feeg6043 import plot_2dframe, sigma_contour
-
+import copy
 
 class LaptopPilot:
     """
@@ -97,8 +98,8 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0]
+        self.northings_path = [0.0, 1.0, 1.0, 0.0]
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0]
         self.relative_path = True  # If True, path is relative to robot's starting position
 
 
@@ -133,9 +134,9 @@ class LaptopPilot:
         self.lidar_data = None
 
         # LIDAR sensor position relative to robot center
-        lidar_xb = 0.07  # 7cm forward of robot center
-        lidar_yb = 0.0   # Centered left-right
-        self.lidar = RangeAngleKinematics(lidar_xb, lidar_yb)
+        self.lidar_xb = 0.07  # 7cm forward of robot center
+        self.lidar_yb = 0.0   # Centered left-right
+        self.lidar = RangeAngleKinematics(self.lidar_xb, self.lidar_yb)
 
 
         # ============ STATE VECTOR FOR SIMPLE TRACKING ============
@@ -173,18 +174,10 @@ class LaptopPilot:
 
         # Create a GraphSLAM2D object for SLAM
         graph = graphslam_frontend()
-        
-        # Add first fixed pose at origin (anchors the map)
-        p = Vector(3)
-        p[0] = 0  # Northings
-        p[1] = 0  # Eastings
-        p[2] = np.deg2rad(0)  # Heading (rad)
-        print('3x1 state vector:\n', p, '\n')
-
         self.sigma_xy = Matrix(3, 3)
-        x = p[0:2].tolist()
-        s = self.sigma_xy[0:2, 0:2].tolist()
-        e_i = sigma_contour([x[1], x[0]], [[s[1][1], s[1][0]], [s[0][1], s[0][0]]], 'b')
+        self.sigma_xy[0, 0] = 0.1  # Small non-zero value
+        self.sigma_xy[1, 1] = 0.1  # Small non-zero value
+        self.sigma_xy[2, 2] = 0.1  # Small non-zero value
 
 
 
@@ -206,6 +199,20 @@ class LaptopPilot:
         self.sigma_observe[1, 1] = 0
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
+
+        # anchor constraint, matrix must be invertable
+        self.sigma = Matrix(3, 3)
+        self.sigma[0, 0] = 0.1
+        self.sigma[0, 1] = 0.01
+        self.sigma[1, 0] = 0.01
+        self.sigma[1, 1] = 0.1
+        self.sigma[0, 2] = 0.01
+        self.sigma[1, 2] = 0.01
+        self.sigma[2, 0] = 0.01
+        self.sigma[2, 1] = 0.01
+        self.sigma[2, 2] = 0.1
+
+
         # SLAM tracking variables
         self.last_slam_update_time = None
         self.slam_update_frequency = 1.0  # Update SLAM every 1 second
@@ -220,6 +227,24 @@ class LaptopPilot:
         # SLAM observations list [type, poses, type, landmarks] 
         self.slam_observations = ['pose', [], 'landmark', []]
         self.p_gt = Vector(3)
+
+
+        self.gpc_corner = load_model()
+        if self.gpc_corner is None:
+            print("Warning: No trained model found. Corner detection will not work.")
+        ################ initialise graph ################
+        print('Start graph data association')
+        self.graph = graphslam_frontend()
+        self.graph.anchor(self.sigma)
+
+        self.completed = False
+
+
+        self.d_p_eb = Vector(3)
+        self.d_p_eb[0] = 0
+        self.d_p_eb[1] = 0
+        self.d_p_eb[2] = 0
+
 
         # Subscribers receive data from the robot
         self.true_wheel_speed_sub = Subscriber(
@@ -436,8 +461,8 @@ class LaptopPilot:
         # Update position using rigid body kinematics
         # This handles the special case when angular velocity is zero
         print("before motion model")
-        p, self.sigma_xy, _, _ = rigid_body_kinematics(p, u, dt=10, sigma_motion=self.sigma_motion, sigma_xy=self.sigma_xy)  
-              
+        p, _, _, _ = rigid_body_kinematics(p, u, dt=0.1, sigma_motion=self.sigma_motion, sigma_xy=self.sigma_xy)  
+
         print("after motion model")
         # Create new state vector with updated position and velocities
         new_state = np.vstack((p, u))
@@ -445,6 +470,56 @@ class LaptopPilot:
         new_state[3:5] = u    # New velocities from control input
 
         return new_state
+    
+
+
+
+    def run_classifier(self, p_eb):
+        print("run_classifier called")
+        print("lidar_data type:", type(self.lidar_data))
+        print("lidar_data is None:", self.lidar_data is None)
+
+        if self.lidar_data is None:
+            print("Skipping classifier - no lidar data available")
+            t_em = Vector(2)
+            t_em[0] = 0.0
+            t_em[1] = 0.0
+            return t_em, False
+    
+        observation, _ = lidar_scan(p_eb, self.lidar_data, self.lidar, self.sigma_observe)
+        flag = False
+        t_em = Vector(2)
+        t_em[0] = 0.0  # Initialize with default values
+        t_em[1] = 0.0
+
+        if (observation is not None and not np.isnan(observation).any() and self.gpc_corner is not None):
+            # Wrap the observation in GPC_input_output class
+            new_observation = GPC_input_output(observation, None)
+            
+            # Check if the observation is classified as a corner
+            prediction = self.gpc_corner.predict([new_observation.data_filled[:, 0]])
+            if prediction[0] == "corner":
+                flag = True
+                threshold = 0.06
+                z_lm = Vector(2)
+                z_lm[0], z_lm[1], loc = GPC_input_output.find_corner(new_observation, threshold)
+                
+                if loc is not None:
+                    # Convert polar coordinates to cartesian in sensor frame
+                    new_observation.ne_representative = self.lidar.rangeangle_to_loc(p_eb, z_lm)
+                    
+                    if new_observation.ne_representative is not None:
+                        # Convert to environment frame using current robot pose
+                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
+                        print('Map observation made at, Northings = ', new_observation.ne_representative[0], 'm, Eastings =', new_observation.ne_representative[1], 'm')
+                        
+                        # Only set t_em if we have a valid corner detection
+                        t_em[0] = new_observation.ne_representative[0]
+                        t_em[1] = new_observation.ne_representative[1]
+                    else:
+                        flag = False
+
+        return t_em, flag
 
 
     def infinite_loop(self):
@@ -543,6 +618,85 @@ class LaptopPilot:
             self.est_pose_eastings_m = self.state[self.E, 0]
             self.est_pose_yaw_rad = self.state[self.G, 0]
 
+            p_eb = Vector(3); 
+            p_eb[0] = self.est_pose_northings_m  # North position
+            p_eb[1] = self.est_pose_eastings_m   # East position
+            p_eb[2] = self.est_pose_yaw_rad      # Heading angle
+
+            print('3x1 state vector:\n', p_eb, '\n')
+            H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
+
+
+
+
+            #################### SHANTAM TO INPUT THE LANDMARK ######################
+                ######################## PLACEHOLDER FOR LANDMARK ##################
+
+            # t_em def from shants
+
+
+            # IF CORNER DETECTED, UPDATE THE GRAPH
+            print("Before calling run_classifier")
+            print("p_eb:", p_eb)
+            t_em, flag = self.run_classifier(p_eb)
+            print("After run_classifier, flag:", flag)
+
+
+
+            # Get the current pose in the graph
+            #CONDITION FOR WHEN A LANDMARK IS OBSERVED
+            
+            if flag == True:
+
+                _, _, t_lm, self.sigma_xy = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
+
+                if (p_eb[0] < 1 and p_eb[1] < 1):
+                    landmark_id = 0
+
+                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 0 and p_eb[1] < 1 ):
+                    landmark_id = 1               
+
+                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
+                    landmark_id = 2
+
+                elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
+                    landmark_id = 3
+                    
+                # adds to the graph as a landmark observation together with its ID
+                self.graph.observation(t_em, self.sigma_xy, landmark_id, t_lm)  # Task
+                print('Observation of Landmark ID', landmark_id)
+
+            else:
+      
+                print('Motion')
+                # store current pose and covaariance
+                p_ = copy.copy(p_eb)
+                sigma_ = copy.copy(self.sigma_xy)
+
+                # progress pose through motion model
+
+
+                p_eb, self.sigma_xy, self.d_p_eb, _ = rigid_body_kinematics(p_eb, u, dt=dt, sigma_motion=self.sigma_motion, sigma_xy=sigma_)
+
+
+                # adds to the graph as a motion
+                self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
+
+
+
+            if self.completed == True:
+    
+                # completes the motion
+                self.graph.motion(p_eb, self.sigma_xy, Vector(3), final=True)
+                print('Finish graph data association')
+                print('*************************************************')
+
+                self.graph.construct_graph()
+
+
+
+
+
             # Log estimated pose
             est_msg = self.pose_parse([datetime.utcnow().timestamp(), 
                                      self.est_pose_northings_m, 
@@ -554,9 +708,8 @@ class LaptopPilot:
             # -------- Trajectory Following --------
             if hasattr(self, 'path'):
                 # Check progress along path and update waypoint if needed
-                self.path.wp_progress(self.t, self.state[:3], self.turning_radius)
-
-                # Get reference position and velocity at current time
+                self.completed = self.path.wp_progress(self.t, self.state[:3], self.turning_radius)
+                                # Get reference position and velocity at current time
                 p_ref, u_ref = self.path.p_u_sample(self.t)
 
                 # -------- Feedback Control --------
