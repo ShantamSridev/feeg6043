@@ -260,7 +260,7 @@ class RangeAngleKinematics():
                 after checking it is within the sensor specification. If not returns np/nan values        
     """
     
-    def __init__(self, x_bl, y_bl, gamma_bl = 0, distance_range = [0.1, 1], scan_fov = np.deg2rad(120)):
+    def __init__(self, x_bl, y_bl, gamma_bl = 0, distance_range = [0.1, 1], scan_fov = np.deg2rad(60)):
         
         self.t_bl = Vector(2)
         self.t_bl[0] = x_bl
