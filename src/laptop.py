@@ -40,7 +40,7 @@ from model_feeg6043 import (
     t2v, v2t
 )
 from math_feeg6043 import Vector, Matrix, l2m, Inverse, HomogeneousTransformation, polar2cartesian
-from classifier import GPC_input_output, load_model
+from classifier import GPC_input_output, load_model, find_corner
 
 import warnings
 
@@ -364,32 +364,39 @@ class LaptopPilot:
         t_em[0] = 0.0  # Initialize with default values
         t_em[1] = 0.0
 
+        print("S1")
         if (observation is not None and not np.isnan(observation).any() and self.gpc_corner is not None):
-            # Wrap the observation in GPC_input_output class
-            new_observation = GPC_input_output(observation, None)
-            
-            # Check if the observation is classified as a corner
-            prediction = self.gpc_corner.predict([new_observation.data_filled[:, 0]])
-            if prediction[0] == "corner":
-                flag = True
-                threshold = 0.06
-                z_lm = Vector(2)
-                z_lm[0], z_lm[1], loc = GPC_input_output.find_corner(new_observation, threshold)
+            try:
+                print("S2")
+                # Wrap the observation in GPC_input_output class
+                new_observation = GPC_input_output(observation, None)
                 
-                if loc is not None:
-                    # Convert polar coordinates to cartesian in sensor frame
-                    new_observation.ne_representative = self.lidar.rangeangle_to_loc(p_eb, z_lm)
-                    
-                    if new_observation.ne_representative is not None:
-                        # Convert to environment frame using current robot pose
-                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
-                        print('Map observation made at, Northings = ', new_observation.ne_representative[0], 'm, Eastings =', new_observation.ne_representative[1], 'm')
-                        
-                        # Only set t_em if we have a valid corner detection
-                        t_em[0] = new_observation.ne_representative[0]
-                        t_em[1] = new_observation.ne_representative[1]
-                    else:
-                        flag = False
+                # Check if the observation is classified as a corner
+                if new_observation.data_filled is not None and len(new_observation.data_filled) > 0:
+                    prediction = self.gpc_corner.predict([new_observation.data_filled[:, 0]])
+                    if prediction[0] == "corner":
+                        flag = True
+                        threshold = 0.06
+                        z_lm = Vector(2)
+                        z_lm[0], z_lm[1], loc = find_corner(new_observation, threshold)
+                        print("S3")
+                        if loc is not None:
+                            # Convert polar coordinates to cartesian in sensor frame
+                            new_observation.ne_representative = self.lidar.rangeangle_to_loc(p_eb, z_lm)
+                            
+                            if new_observation.ne_representative is not None:
+                                # Convert to environment frame using current robot pose
+                                H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
+                                print('Map observation made at, Northings = ', new_observation.ne_representative[0], 'm, Eastings =', new_observation.ne_representative[1], 'm')
+                                
+                                # Only set t_em if we have a valid corner detection
+                                t_em[0] = new_observation.ne_representative[0]
+                                t_em[1] = new_observation.ne_representative[1]
+                            else:
+                                flag = False
+            except Exception as e:
+                print(f"Error processing observation: {e}")
+                flag = False
 
         return t_em, flag
     

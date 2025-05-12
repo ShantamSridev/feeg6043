@@ -40,7 +40,7 @@ import warnings
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-def find_corner(self, corner, threshold):
+def find_corner(corner, threshold = 0.01):
         # identify the reference coordinate as the inflection point
 
         # Step 1: Compute slope
@@ -143,8 +143,8 @@ class GPC_input_output:
                     # check if it is a corner with the inflection point
                     new_observation = cls(observation, None)
 
-                    threshold = 0.006  # can reduce to make less conservative
-                    z_lm[0], z_lm[1], loc = cls.find_corner(new_observation, threshold)
+                    threshold = 0.001  # can reduce to make less conservative
+                    z_lm[0], z_lm[1], loc = find_corner(new_observation, threshold)
 
                     # if the bepoke model says returns a location, add to training data
                     if loc is not None:
@@ -188,8 +188,8 @@ class GPC_input_output:
             ):
                 # check if it is a corner with the inflection point
                 new_observation = cls(observation, None)
-                threshold = 0.006  # can reduce to make less conservative
-                _, _, loc = cls.find_corner(new_observation, threshold)
+                threshold = 0.06  # can reduce to make less conservative
+                _, _, loc = find_corner(new_observation, threshold)
 
                 # if no corner is found, register as a not corner for the training
                 if loc is None:
@@ -197,33 +197,33 @@ class GPC_input_output:
                     corner_training.append(new_observation)
         return corner_training
     
-    @staticmethod
-    def find_corner(corner, threshold):
-        # identify the reference coordinate as the inflection point
+    # @staticmethod
+    # def find_corner(corner, threshold):
+    #     # identify the reference coordinate as the inflection point
 
-        # Step 1: Compute slope
-        slope = np.gradient(corner.data[:, 0])
+    #     # Step 1: Compute slope
+    #     slope = np.gradient(corner.data[:, 0])
 
-        # Step 2: Compute the second derivative (curvature)
-        curvature = np.gradient(slope)
+    #     # Step 2: Compute the second derivative (curvature)
+    #     curvature = np.gradient(slope)
 
-        # Step 3: Check if criteria is more than threshold
-        if np.nanmax(abs(np.gradient(np.gradient(curvature)))) > threshold:
-            # compute index of inflection point
-            largest_inflection_idx = np.nanargmax(
-                abs(np.gradient(np.gradient(curvature)))
-            )
+    #     # Step 3: Check if criteria is more than threshold
+    #     if np.nanmax(abs(np.gradient(np.gradient(curvature)))) > threshold:
+    #         # compute index of inflection point
+    #         largest_inflection_idx = np.nanargmax(
+    #             abs(np.gradient(np.gradient(curvature)))
+    #         )
 
-            r = corner.data[
-                largest_inflection_idx, 0
-            ]  # Radial distance at the largest curvature
-            theta = corner.data[
-                largest_inflection_idx, 1
-            ]  # Angle at the largest curvature
-            return r, theta, largest_inflection_idx
+    #         r = corner.data[
+    #             largest_inflection_idx, 0
+    #         ]  # Radial distance at the largest curvature
+    #         theta = corner.data[
+    #             largest_inflection_idx, 1
+    #         ]  # Angle at the largest curvature
+    #         return r, theta, largest_inflection_idx
 
-        else:
-            return None, None, None  # No inflection points found
+    #     else:
+    #         return None, None, None  # No inflection points found
 
 def train_and_save_model():
     # Setup lidar parameters
@@ -248,18 +248,21 @@ def train_and_save_model():
     m_x = []
     m_y = []
 
-    for x in np.arange(-1, 1, 0.01):
+    # train Gaussian Process Classifier
+    m_x = []
+    m_y = []
+    for x in np.arange(0, 2, 0.01):
         m_x.append(x)
-        m_y.append(-1) #west wall      
-    for x in np.arange(-1, 1, 0.01):
+        m_y.append(0)  # west wall
+    for x in np.arange(0, 2, 0.01):
         m_x.append(x)
-        m_y.append(1) #east wall
-    for y in np.arange(-1, 1, 0.01):
-        m_x.append(-1)
-        m_y.append(y) #south wall
-    for y in np.arange(-1, 1, 0.01):
-        m_x.append(1)
-        m_y.append(y) #north wall
+        m_y.append(2)  # east wall
+    for y in np.arange(0, 2, 0.01):
+        m_x.append(0)
+        m_y.append(y)  # south wall
+    for y in np.arange(0, 2, 0.01):
+        m_x.append(2)
+        m_y.append(y)  # north wall
 
     environment_map = l2m([m_x, m_y])
 
