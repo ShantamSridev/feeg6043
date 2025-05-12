@@ -357,36 +357,37 @@ class LaptopPilot:
             self.lidar_sub.stop()
             self.groundtruth_sub.stop()
             self.true_wheel_speed_sub.stop()
-    def run_classifier(self):
-
-
+    def run_classifier(self, p_eb):
         observation, _ = lidar_scan(p_eb, self.lidar_data, self.lidar, self.sigma_observe)
+        flag = False
+        t_em = Vector(2)
 
         if (observation is not None and not np.isnan(observation).any() and self.gpc_corner is not None):
             # Wrap the observation in GPC_input_output class
             new_observation = GPC_input_output(observation, None)
             
             # Use classifier to judge if it is a corner or not, can increase this to be more conservative
-
             # Check if the observation is classified as a corner
             prediction = self.gpc_corner.predict([new_observation.data_filled[:, 0]])
             if prediction[0] == "corner":
-                threshold = 0.01
+                flag = True
+                threshold = 0.06
                 z_lm = Vector(2)
                 z_lm[0], z_lm[1], loc = GPC_input_output.find_corner(new_observation, threshold)
                 
                 if loc is not None:
                     # Convert polar coordinates to cartesian in sensor frame
-                    new_observation.ne_representative=self.lidar.rangeangle_to_loc(p_eb,z_lm)
+                    new_observation.ne_representative = self.lidar.rangeangle_to_loc(p_eb, z_lm)
                     
                     # Convert to environment frame using current robot pose
                     H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
-                    print('Map observation made at, Northings = ',new_observation.ne_representative[0],'m, Eastings =',new_observation.ne_representative[1],'m')
+                    print('Map observation made at, Northings = ', new_observation.ne_representative[0], 'm, Eastings =', new_observation.ne_representative[1], 'm')
+                    
+                    # Only set t_em if we have a valid corner detection
+                    t_em[0] = new_observation.ne_representative[0]
+                    t_em[1] = new_observation.ne_representative[1]
 
-        t_em = Vector[2]
-        t_em[0] = new_observation.ne_representative[0]
-        t_em[1] = new_observation.ne_representative[1]
-        return t_em
+        return t_em, flag
     
     def infinite_loop(self):
         """Main control loop
@@ -473,7 +474,7 @@ class LaptopPilot:
             self.est_pose_eastings_m = p_robot[1, 0]
             self.est_pose_yaw_rad = p_robot[2, 0]
 
-            t_em = run_classifier()
+            t_em, flag = self.run_classifier(p_robot)
             
             msg = self.pose_parse(
                 [

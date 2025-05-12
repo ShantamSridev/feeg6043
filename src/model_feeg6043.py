@@ -1053,7 +1053,10 @@ class TrajectoryGenerate():
                 
                 print('************************************************************')
                 print('Trajectory completed at:',self.t_complete,'s')    
-                print('************************************************************')                
+                print('************************************************************')           
+                flag_complete = True  
+            else:
+                flag_complete = False
         else:
             # if within acceptance radius, follow trajectory to next waypoint
             if distance_to_wp <= accept_radius:                
@@ -1083,7 +1086,7 @@ class TrajectoryGenerate():
                         for i in range(self.wp_id-1,len(Tp)): Tp[i]=Tp[i]+delay
                         if len(self.Tp_arc) == 1: self.Tp = copy.copy(Tp)
                         else: self.Tp_arc = copy.copy(Tp)                 
-         
+        return flag_complete
                 
     def _point_to_point(self, x_points,y_points, params, start_stationary = True, end_stationary = True):
 

@@ -40,7 +40,7 @@ import warnings
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-def find_corner(self, corner, threshold=0.01):
+def find_corner(self, corner, threshold):
         # identify the reference coordinate as the inflection point
 
         # Step 1: Compute slope
@@ -143,7 +143,7 @@ class GPC_input_output:
                     # check if it is a corner with the inflection point
                     new_observation = cls(observation, None)
 
-                    threshold = 0.001  # can reduce to make less conservative
+                    threshold = 0.006  # can reduce to make less conservative
                     z_lm[0], z_lm[1], loc = cls.find_corner(new_observation, threshold)
 
                     # if the bepoke model says returns a location, add to training data
@@ -188,7 +188,7 @@ class GPC_input_output:
             ):
                 # check if it is a corner with the inflection point
                 new_observation = cls(observation, None)
-                threshold = 0.01  # can reduce to make less conservative
+                threshold = 0.006  # can reduce to make less conservative
                 _, _, loc = cls.find_corner(new_observation, threshold)
 
                 # if no corner is found, register as a not corner for the training
@@ -198,7 +198,7 @@ class GPC_input_output:
         return corner_training
     
     @staticmethod
-    def find_corner(corner, threshold=0.01):
+    def find_corner(corner, threshold):
         # identify the reference coordinate as the inflection point
 
         # Step 1: Compute slope
@@ -232,7 +232,7 @@ def train_and_save_model():
     lidar = RangeAngleKinematics(
         lidar_xb,
         lidar_yb,
-        distance_range=[0.1, 2],
+        distance_range=[0.1, 1],
         scan_fov=np.deg2rad(120),
         n_beams=30,
     )
@@ -247,18 +247,19 @@ def train_and_save_model():
     # Create environment map
     m_x = []
     m_y = []
-    for x in np.arange(0, 2, 0.01):
+
+    for x in np.arange(-1, 1, 0.01):
         m_x.append(x)
-        m_y.append(0)  # west wall
-    for x in np.arange(0, 2, 0.01):
+        m_y.append(-1) #west wall      
+    for x in np.arange(-1, 1, 0.01):
         m_x.append(x)
-        m_y.append(2)  # east wall
-    for y in np.arange(0, 2, 0.01):
-        m_x.append(0)
-        m_y.append(y)  # south wall
-    for y in np.arange(0, 2, 0.01):
-        m_x.append(2)
-        m_y.append(y)  # north wall
+        m_y.append(1) #east wall
+    for y in np.arange(-1, 1, 0.01):
+        m_x.append(-1)
+        m_y.append(y) #south wall
+    for y in np.arange(-1, 1, 0.01):
+        m_x.append(1)
+        m_y.append(y) #north wall
 
     environment_map = l2m([m_x, m_y])
 
@@ -299,3 +300,9 @@ def load_model():
 
 if __name__ == "__main__":
     train_and_save_model()
+
+#CHANGEABLE VALUES
+#FOV
+#Threshold = 0.06
+#Distance range
+# Environment setup
