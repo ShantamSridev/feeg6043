@@ -17,7 +17,7 @@ from zeroros.rate import Rate
 from joblib import load
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import ConstantKernel, RBF
-from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation, plot_2dframe
+from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control, t2v, v2t
 
 
@@ -584,81 +584,66 @@ class LaptopPilot:
         self.measured_wheelrate_left = msg.vector.y
         self.datalog.log(msg, topic_name="/true_wheel_speeds")
 
-        def lidar_callback(self, msg):
-        # This is a callback function that is called whenever a message is received        
-        #print("Received lidar message", msg.header.seq)
-            
-            if self.sim_init == True:
-                self.sim_time_offset = datetime.utcnow().timestamp()-msg.header.stamp
-                self.sim_init = False     
+    def lidar_callback(self, msg):
+        # … timestamp offset handling …
 
-            msg.header.stamp += self.sim_time_offset
+        # grab raw arrays
+        ranges = np.array(msg.ranges)       # length 120
+        angles = np.array(msg.angles)       # length 120
 
-            self.lidar_timestamp_s = msg.header.stamp #we want the lidar measurement timestamp here
-            
-            self.lidar_data = np.zeros((len(msg.ranges), 2)) #specify length of the lidar data
-            self.lidar_data[:,0] = msg.ranges # use ranges as a placeholder, workout northings in Task 4
-            self.lidar_data[:,1] = msg.angles # use angles as a placeholder, workout eastings in Task 4
+        # --- 1) figure out how many features the classifier wants ---
+        n_features = self.corner_clf.n_features_in_    # e.g. 30
 
-            # stack into an (N×2) feature matrix exactly as you did during training:
-            X_feat = np.column_stack((msg.ranges, msg.angles))
+        # --- 2) pick that many indices evenly across your 120 beams ---
+        idxs = np.linspace(0, len(ranges)-1, n_features, dtype=int)
+        ranges_sub = ranges[idxs]
+        angles_sub = angles[idxs]  # you only need this if you want bearings later
 
-            # if your classifier supports probabilities:
-            if hasattr(self.corner_clf, "predict_proba"):
-                # get P(corner) for each beam
-                corner_probs = self.corner_clf.predict_proba(X_feat)[:, 1]
-                # threshold at 0.5 (or whatever makes sense)
-                is_corner = corner_probs > 0.5
-            else:
-                # otherwise just direct labels
-                is_corner = self.corner_clf.predict(X_feat).astype(bool)
+        # --- 3) zero-offset & fill NaNs exactly as in training ---
+        mean_r = np.nanmean(ranges_sub)
+        filled = np.where(np.isnan(ranges_sub), 0.0, ranges_sub - mean_r)
 
-            # extract the beams classified as corners
-            corner_ranges = msg.ranges[is_corner]
-            corner_angles = msg.angles[is_corner]
+        # --- 4) build the (1 × n_features) matrix for sklearn ---
+        X = filled.reshape(1, -1)
 
-            # (Optional) project those corner beams into world coords
-            corner_points = []
-            # b to e frame
-            p_eb = Vector(3)
-            p_eb[0] = self.est_pose_northings_m #robot pose northings (see Task 3)
-            p_eb[1] = self.est_pose_eastings_m #robot pose eastings (see Task 3)
-            p_eb[2] = self.est_pose_yaw_rad #robot pose yaw (see Task 3)
+        # --- 5) classify just that subsampled scan ---
+        probs = self.corner_clf.predict_proba(X)[0]
+        max_p = np.max(probs)
+        label = self.corner_clf.classes_[np.argmax(probs)]
 
-            z_lm = Vector(2)
-            for r, a in zip(corner_ranges, corner_angles):
-                z_lm[0], z_lm[1] = r, a
-                pt = self.lidar.rangeangle_to_loc(p_eb, z_lm)
-                corner_points.append((pt[0], pt[1]))
+        # --- 6) simple print logic (no plotting) ---
+        threshold = 0.5
+        if max_p >= threshold:
+            print(f"New scan classified as '{label}' (P = {max_p:.3f}), full probs = {probs}")
+            if label == 'corner':
+                # find the inflection point on your subsampled ranges
+                slope     = np.gradient(filled)
+                curvature = np.gradient(slope)
+                inflect   = np.gradient(curvature)
+                max_inf   = np.max(np.abs(inflect))
+                inf_th    = 0.006
 
-            # now you have a list of (north,east) corner_points
-            # you can log them, plot them, or trigger whatever logic you need
+                if max_inf > inf_th:
+                    i = np.argmax(np.abs(inflect))
+                    r_c = ranges_sub[i]
+                    θ_c = angles_sub[i]
 
-            # finally, continue with your existing pipeline…
-            self.datalog.log(msg, topic_name="/lidar")
-            # # b to e frame
-            # p_eb = Vector(3)
-            # p_eb[0] = self.est_pose_northings_m #robot pose northings (see Task 3)
-            # p_eb[1] = self.est_pose_eastings_m #robot pose eastings (see Task 3)
-            # p_eb[2] = self.est_pose_yaw_rad #robot pose yaw (see Task 3)
+                    # project that beam into world coords
+                    p_eb = Vector(3)
+                    p_eb[0] = self.est_pose_northings_m
+                    p_eb[1] = self.est_pose_eastings_m
+                    p_eb[2] = self.est_pose_yaw_rad
+                    z = Vector(2); z[0], z[1] = r_c, θ_c
+                    ne = self.lidar.rangeangle_to_loc(p_eb, z)
 
-            # # m to e frame
-            # self.lidar_data = np.zeros((len(msg.ranges), 2))        
-                        
-            # z_lm = Vector(2)        
-            # # for each map measurement
-            # for i in range(len(msg.ranges)):
-            #     z_lm[0] = msg.ranges[i]
-            #     z_lm[1] = msg.angles[i]
-                    
-            #     t_em = self.lidar.rangeangle_to_loc(p_eb, z_lm) # see tutotial
+                    print(f" → Detected corner at North = {ne[0]:.3f} m, East = {ne[1]:.3f} m")
+                else:
+                    print(f" → No inflection (max {max_inf:.4f} < {inf_th})")
+        else:
+            print(f"No corner (max P={max_p:.3f} < {threshold})")
 
-            #     self.lidar_data[i,0] = t_em[0]
-            #     self.lidar_data[i,1] = t_em[1]
-
-            # # this filters out any 
-            # self.lidar_data = self.lidar_data[~np.isnan(self.lidar_data).any(axis=1)]
-            # self.datalog.log(msg, topic_name="/lidar")
+        # … and finally keep your normal logging …
+        self.datalog.log(msg, topic_name="/lidar")
 
     def groundtruth_callback(self, msg):
         """This callback receives the odometry ground truth from the simulator."""
