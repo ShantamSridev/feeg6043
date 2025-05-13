@@ -722,7 +722,7 @@ class LaptopPilot:
                 (len(corner_training), corner_training[0].data_filled[:, 0].size),
                 None,
             )
-            y_train = np.full(len(corner_training), None, dtype=object)
+            y_train = np.full(len(corner_training), None, d type=object)
 
             # populate with the training data
             for i in range(len(corner_training)):

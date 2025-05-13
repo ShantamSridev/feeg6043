@@ -14,8 +14,15 @@ from zeroros import Subscriber, Publisher
 from zeroros.messages import LaserScan, Vector3Stamped, Pose, PoseStamped, Header, Quaternion
 from zeroros.datalogger import DataLogger
 from zeroros.rate import Rate
-from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation
+from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian, l2m, HomogeneousTransformation, t2v, v2t, polar2cartesian
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
+from model_feeg6043 import graphslam_frontend, lidar_scan, graphslam_backend 
+from classifier import GPC_input_output, load_model
+from plot_feeg6043 import plot_2dframe, sigma_contour, show_information
+import copy
+import joblib
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 
 class LaptopPilot:
@@ -71,8 +78,10 @@ class LaptopPilot:
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter) 
 
         # path
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] # create a list of waypoints
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0] # create a list of waypoints
+        pathx = [0.0, 1.5, 1.5, 0.0]
+        pathy = [0.0, 0.0, 1.5, 1.5]
+        self.northings_path = pathx + pathx + [0.0] # create a list of waypoints
+        self.eastings_path = pathy + pathy + [0.0] # create a list of waypoints
         
         
         self.relative_path = True # False if you want it to be absolute
@@ -152,6 +161,79 @@ class LaptopPilot:
         self.R[self.G, self.G] = self.R_G**2
         self.R[self.DOTX, self.DOTX] = self.dot_x_R_std**2
         self.R[self.DOTG, self.DOTG] = self.dot_g_R_std**2
+
+        # ============ SLAM SETUP ============
+
+        # Create a GraphSLAM2D object for SLAM
+        graph = graphslam_frontend()
+        self.sigma_xy = Matrix(3, 3)
+        self.sigma_xy[0, 0] = 0.1  # Small non-zero value
+        self.sigma_xy[1, 1] = 0.1  # Small non-zero value
+        self.sigma_xy[2, 2] = 0.1  # Small non-zero value
+
+
+
+        # Motion model linear noise due to v and w
+        self.sigma_motion = Matrix(3, 2)
+        self.sigma_motion[0, 0] = 0.1*2    # impact of v linear velocity on x
+        self.sigma_motion[0, 1] = np.deg2rad(0.1)**2  # impact of w angular velocity on x
+        self.sigma_motion[1, 0] = 0.3**2   # impact of v linear velocity on y
+        self.sigma_motion[1, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on y
+        self.sigma_motion[2, 0] = 0.1**2   # impact of v linear velocity on gamma
+        self.sigma_motion[2, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on gamma
+        print('3x2 motion noise model:\n', self.sigma_motion, '\n')
+
+        # Observation model linear noise with range
+        self.sigma_observe = Matrix(2, 2)
+        self.sigma_observe[0, 0] = 0.1**2  # 10% of range
+        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[1, 0] = np.deg2rad(5)**2  # 5 degree per metre range
+        self.sigma_observe[1, 1] = 0
+        print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # anchor constraint, matrix must be invertable
+        self.sigma = Matrix(3, 3)
+        self.sigma[0, 0] = 0.1
+        self.sigma[0, 1] = 0.01
+        self.sigma[1, 0] = 0.01
+        self.sigma[1, 1] = 0.1
+        self.sigma[0, 2] = 0.01
+        self.sigma[1, 2] = 0.01
+        self.sigma[2, 0] = 0.01
+        self.sigma[2, 1] = 0.01
+        self.sigma[2, 2] = 0.1
+
+
+        # SLAM tracking variables
+        self.last_slam_update_time = None
+        self.slam_update_frequency = 1.0  # Update SLAM every 1 second
+        self.landmarks = {}  # Dictionary to track observed landmarks
+        self.wall_point_threshold = 0.1  # Distance threshold to consider points part of same wall
+
+        # SLAM intensity values
+        self.node_intensity = 3
+        self.motion_intensity = 1
+        self.observation_intensity = 2
+
+        # SLAM observations list [type, poses, type, landmarks] 
+        self.slam_observations = ['pose', [], 'landmark', []]
+        self.p_gt = Vector(3)
+
+
+        print('Start graph data association')
+        self.graph = graphslam_frontend()
+        self.graph.anchor(self.sigma)
+
+        self.completed = False
+
+
+        self.d_p_eb = Vector(3)
+        self.d_p_eb[0] = 0
+        self.d_p_eb[1] = 0
+        self.d_p_eb[2] = 0
+
+        self.gpc_corner = None
         
         self.aruco_count = 0
         self.loop_count = 0
@@ -324,7 +406,61 @@ class LaptopPilot:
         # Return the state and the covariance
         return cor_mu, cor_Sigma
 
+    def find_corner(self, corner, threshold=0.01):
+        # identify the reference coordinate as the inflection point
 
+        # Step 1: Compute slope
+        slope = np.gradient(corner.data[:, 0])
+
+        # Step 2: Compute the second derivative (curvature)
+        curvature = np.gradient(slope)
+
+        # Step 3: Check if criteria is more than threshold
+        # print('Max inflection value is ',np.nanmax(abs(np.gradient(np.gradient(curvature)))), ': Threshold ',threshold)
+        if np.nanmax(abs(np.gradient(np.gradient(curvature)))) > threshold:
+            # compute index of inflection point
+            largest_inflection_idx = np.nanargmax(
+                abs(np.gradient(np.gradient(curvature)))
+            )
+
+            r = corner.data[
+                largest_inflection_idx, 0
+            ]  # Radial distance at the largest curvature
+            theta = corner.data[
+                largest_inflection_idx, 1
+            ]  # Angle at the largest curvature
+            return r, theta, largest_inflection_idx
+
+        else:
+            return None, None, None  # No inflection points found
+
+    class GPC_input_output:
+        def __init__(self, data, label):
+            """
+            Initializes an observation with data and a label.
+
+            Parameters:
+            data (matrix): The observation data (e.g., a matrix).
+            data_filled (matrix): The observation data after zero offset and making nan's mean
+            label (str): The label associated with the observation.
+            ne_representative: representative northings and eastings location
+            """
+            self.data = data
+            self.data_filled = self._fill_nan(data)
+            self.label = label
+            self.ne_representative = None
+            # make filled and zero offset version
+
+        def _fill_nan(self, data):
+            data_filled = np.copy(data)
+            mean = np.nanmean(data[:, 0])
+            for i in range(len(data[:, 1])):
+                if np.isnan(data[i, 0]):
+                    data_filled[i, 0] = 0
+                else:
+                    data_filled[i, 0] = data[i, 0] - mean
+            return data_filled
+        
     def motion_model(self, state, u, dt):
             
         N_k_1 = state[self.N]
@@ -442,6 +578,14 @@ class LaptopPilot:
             self.est_pose_eastings_m = self.measured_pose_eastings_m
             self.est_pose_yaw_rad = self.measured_pose_yaw_rad
 
+            p_eb = Vector(3); 
+            p_eb[0] = self.est_pose_northings_m  # North position
+            p_eb[1] = self.est_pose_eastings_m   # East position
+            p_eb[2] = self.est_pose_yaw_rad      # Heading angle
+
+            print('3x1 state vector:\n', p_eb, '\n')
+            H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
+
             # get current time and determine timestep
             self.t_prev = datetime.utcnow().timestamp() #initialise the time
             self.t = 0 #elapsed time
@@ -450,6 +594,10 @@ class LaptopPilot:
             # Generate trajectory after initializing pose
             self.generate_trajectory()
             # path and trajectory are initialised
+
+            ###################################SETUP JOBLB CLASSIFIER########   
+            self.gpc_corner = joblib.load("gaussian_process_classifier.joblib")
+
             self.initialise_pose = False 
 
         if self.initialise_pose != True and self.measured_wheelrate_right is not None and self.measured_wheelrate_left is not None:  
@@ -511,8 +659,8 @@ class LaptopPilot:
             dp[2] = (dp[2] + np.pi) % (2 * np.pi) - np.pi  # handle angle wrapping for yaw
 
             # Transform difference to body frame
-            H_eb = HomogeneousTransformation(self.state[:3][0:2],self.state[:3][2])  # body to earth transform
-            ds = Inverse(H_eb.H_R) @ dp 
+            H_eb_l = HomogeneousTransformation(self.state[:3][0:2],self.state[:3][2])  # body to earth transform
+            ds = Inverse(H_eb_l.H_R) @ dp 
             if self.initialise_control == True:
                 # Initial gains when starting from rest
                 self.k_n = (2*(u_ref[0]))/(self.L**2)
@@ -543,12 +691,275 @@ class LaptopPilot:
 
             self.cmd_wheelrate_right = wheel_speed_msg.vector.x
             self.cmd_wheelrate_left = wheel_speed_msg.vector.y
+
+            p_eb = Vector(3); 
+            p_eb[0] = self.est_pose_northings_m  # North position
+            p_eb[1] = self.est_pose_eastings_m   # East position
+            p_eb[2] = self.est_pose_yaw_rad      # Heading angle
+
+            print('3x1 state vector:\n', p_eb, '\n')
+            H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
+
+
+
     ################################################################################
 
             # > Act < #
             # Send commands to the robot        
             self.wheel_speed_pub.publish(wheel_speed_msg)
             self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
+
+            ######################ADDING GRAPH SLAM HERE###########################
+           # IF CORNER DETECTED, UPDATE THE GRAPH
+            print("Before calling run_classifier")
+            print("p_eb:", p_eb)
+            flag = False
+            t_em = Vector(2)
+            t_em[0] = 0
+            t_em[1] = 0
+            observation, _ = lidar_scan(
+                p_eb, self.lidar_data, self.lidar, self.sigma_observe
+            )
+            if (
+                observation is not None
+                or not np.isnan(observation.data_filled[:, 0]).any()
+            ):
+                new_observation = self.GPC_input_output(observation, None)
+                # Ensure the input data has the correct shape (240 features)
+                input_data = np.zeros(240)  # Create array of expected size
+                actual_data = new_observation.data_filled[:, 0]
+                # Copy available data, pad with zeros if needed
+                input_data[:len(actual_data)] = actual_data
+                
+                new_observation.label = self.gpc_corner.classes_[
+                    np.argmax(
+                        self.gpc_corner.predict_proba(
+                            [input_data]  # Use the properly shaped input
+                        )
+                    )
+                ]
+                if new_observation.label == "corner":
+                    flag = True
+                    r, theta, idx = self.find_corner(new_observation)
+                    if r is not None:
+                        # Convert polar coordinates to cartesian in sensor frame
+                        x_l, y_l = polar2cartesian(r, theta)
+                        
+                        # Convert to environment frame using current robot pose
+                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
+                        t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
+                        
+                        print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
+            #t_em, flag = self.run_classifier(p_eb)
+            print("After run_classifier, flag:", flag)
+
+            
+            if flag == True:
+                print("POINT1")
+                _, _, t_lm, sigma_xy_lm = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
+
+                self.sigma_xy[0,0] = sigma_xy_lm[0,0]
+                self.sigma_xy[1,1] = sigma_xy_lm[1,1]
+
+                print("POINT2")
+
+                if (p_eb[0] < 1 and p_eb[1] < 1):
+                    landmark_id = 0
+
+                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 0 and p_eb[1] < 1 ):
+                    landmark_id = 1               
+
+                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
+                    landmark_id = 2
+
+                elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
+                    landmark_id = 3 
+                # adds to the graph as a landmark observation together with its ID
+                self.graph.observation(t_em, sigma_xy_lm, landmark_id, t_lm)  # Task
+                print('Observation of Landmark ID', landmark_id)
+
+            else:
+      
+                print('Motion')
+                # store current pose and covaariance
+                p_ = copy.copy(p_eb)
+                sigma_ = copy.copy(self.sigma_xy)
+
+                # progress pose through motion model
+
+                sigma = Matrix(3,3) 
+                sigma[0,0]=0.1
+                sigma[0,1]=0.01
+                sigma[1,0]=0.01
+                sigma[1,1]=0.1
+                sigma[0,2]=0.01
+                sigma[1,2]=0.01
+                sigma[2,0]=0.01
+                sigma[2,1]=0.01
+                sigma[2,2]=0.1
+                p_eb, self.sigma_xy, self.d_p_eb, _ = rigid_body_kinematics(p_eb, u, dt=dt, sigma_motion=self.sigma_motion, sigma_xy=sigma)
+
+
+                # adds to the graph as a motion
+                self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
+
+
+            print("s3")
+            ################################## BACKEND ######################################
+
+            if self.completed == True:
+    
+                # completes the motion
+                self.graph.motion(p_eb, self.sigma_xy, Vector(3), final=True)
+                print('Finish graph data association')
+                print('*************************************************')
+
+                self.graph.construct_graph()
+
+                
+
+                initial_residual = 100  # just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
+                initial_flag = True
+
+                residual_threshold = 1E-12  # if result changes by <1
+                delta_threshold = 1/10  # if result changes by <1
+                lim_iterations = 20
+
+                n_iterations = 0
+                delta_residual = initial_residual
+                residual = initial_residual
+
+                visualise_flag = False
+                iteration_continue = True
+                residual_continue = True
+                converge_continue = True
+
+                # if any of the conditions become false, then while loop will exit
+                cpu_start_solver = datetime.now()
+
+
+                graph_init = copy.deepcopy(self.graph)
+                graph_validate = copy.deepcopy(self.graph)
+                graph_opt = graphslam_backend(self.graph)
+
+                while iteration_continue and residual_continue and converge_continue:
+                    graph_opt.solve()
+
+                    prev_residual = residual
+                    residual = graph_opt.residual
+
+                    delta_residual = abs((prev_residual - residual) / prev_residual)
+                    n_iterations += 1
+
+                    print('**************  Residual = ', residual, ' ***************')
+                    residual_continue = (residual > residual_threshold)
+                    print('Residual above threshold?', residual_continue)
+
+                    print('************** Iteration = ', n_iterations, ' ***************')
+                    iteration_continue = (n_iterations <= lim_iterations)
+                    print('Iterations below limit?', iteration_continue)
+
+                    print('********* Delta Residual = ', delta_residual, ' ***************')
+                    converge_continue = (delta_residual > delta_threshold)
+                    print('Residual still changing?', converge_continue)
+
+                    # reconstruct the graph with these nodes
+                    graph_opt = graphslam_frontend(graph_opt)   # Task
+                    graph_opt.construct_graph()  # Task
+                    graph_opt = graphslam_backend(graph_opt)    # Task
+
+                cpu_end_solver = datetime.now()
+                delta = cpu_end_solver - cpu_start_solver
+                print('********* Final solution took:', (delta.total_seconds()), 's ***************')
+
+
+
+                #show the original graph
+                graph_opt = graphslam_backend(graph_init)
+                print('Original graph has:')
+                print('Poses',graph_init.n)
+                print('Landmarks',graph_init.m)
+                print('Edges',graph_init.e)
+
+
+                #show the reduced form
+                pose_graph = graph_opt.reduce2pose()
+                print('Reduced graph has:')
+                print('Poses',pose_graph.n)
+                print('Landmarks',pose_graph.m)
+                print('Edges',pose_graph.e)
+
+                # shows information vector and matrix
+                visualise_flag = True 
+                pose_graph = graph_opt.reduce2pose(visualise_flag)
+                print('Grey cells indicate information that has been modified through the graph reduction')
+
+
+
+                initial_residual = 100 #just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
+                initial_flag = True
+
+                residual_threshold = 1E-12 #if result changes by <1
+                delta_threshold = 1/1000 #if result changes by <1
+                lim_iterations = 20
+
+                n_iterations = 0
+                delta_residual = initial_residual
+                residual = initial_residual
+
+                visualise_flag = False
+                iteration_continue = True 
+                residual_continue = True
+                converge_continue = True
+
+                # reset the pose graph (full_graph_ should be unaffected by previous calculations)
+                pose_graph = graph_opt.reduce2pose(visualise_flag)
+                l = graph_opt.n*3
+
+                # if any of the conditions become false, then while loop will exit
+                cpu_start_solver = datetime.now()
+
+                while iteration_continue and residual_continue and converge_continue:
+                    
+                    pose_graph.solve()    
+                    
+                    prev_residual = residual
+                    residual = pose_graph.residual
+
+                    delta_residual = abs((prev_residual - residual) /prev_residual)
+                    n_iterations += 1
+
+                    print('**************  Residual = ',residual,' ***************')        
+                    residual_continue = (residual > residual_threshold)
+                    print('Residual above threshold?',residual_continue)    
+                    
+                    print('************** Iteration = ',n_iterations,' ***************')
+                    iteration_continue = (n_iterations <= lim_iterations)
+                    print('Iterations below limit?',iteration_continue)
+
+                    print('********* Delta Residual = ', delta_residual, ' ***************')
+                    converge_continue = (delta_residual > delta_threshold)
+                    print('Residual still changing?', converge_continue)
+
+                    #reconstruct the graph with these nodes
+                    graph_opt.state_vector[0:l] = pose_graph.state_vector # Task
+                    graph_opt.state_vector[l:] = Inverse(graph_opt.H[l:,l:])@(graph_opt.b[l:]+graph_opt.H[l:,0:l]@graph_opt.state_vector[0:l])
+                    graph_opt = graphslam_frontend(graph_opt)
+                    graph_opt.construct_graph()
+                    graph_opt = graphslam_backend(graph_opt) 
+                    
+                    pose_graph = graph_opt.reduce2pose(visualise_flag) # Task
+
+                cpu_end_solver = datetime.now()
+
+                show_information(pose_graph.H,pose_graph.n,3,pose_graph.m,2, matrix_compare = graph_init.H[0:l,0:l])
+                    
+
+                delta =  cpu_end_solver - cpu_start_solver
+                print('********* Final solution took:',(delta.total_seconds()),'s ***************')                                                                
+
+################################## BACKEND ######################################
+ 
 
 
 if __name__ == "__main__":
