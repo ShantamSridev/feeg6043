@@ -1686,10 +1686,10 @@ class graphslam_frontend:
         print('Constructing graph 1')   
         #constrain the initial location
         self.H[0:3,0:3] = Inverse(self.sigma_anchor) 
-
+        print('Constructing graph 1.1')  
         # work through the edges to construct b and H
         for k in range(self.e):
-                        
+            print('Constructing graph 1.2')              
             if visualise_flag == True: print('Edge',self.edge[k])
             
             edge_type=self.edge[k][0]
@@ -1697,6 +1697,7 @@ class graphslam_frontend:
             j=self.edge[k][2]    
         
             if edge_type == 'motion':
+                print('Constructing graph 1.2')
                 #point to correct location in the extended state vector
                 self.state_vector[3*i:3*i+3]=self.pose[i]
                 self.state_vector[3*j:3*j+3]=self.pose[j]

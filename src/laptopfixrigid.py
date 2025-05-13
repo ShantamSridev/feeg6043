@@ -69,7 +69,7 @@ class LaptopPilot:
         # ============ ROBOT PHYSICAL PARAMETERS ============
         # These define the physical dimensions of the robot
         wheel_distance =  0.165/2  # Distance between left and right wheels in meters
-        wheel_diameter = 0.065  # Diameter of each wheel in meters
+        wheel_diameter = 0.07  # Diameter of each wheel in meters
 
         # Create differential drive configuration object
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter)
@@ -77,21 +77,21 @@ class LaptopPilot:
 
         # ============ TRAJECTORY PARAMETERS ============
         # These control how the robot moves along its path
-        self.velocity = 0.08              # Desired forward velocity in m/s
+        self.velocity = 0.05              # Desired forward velocity in m/s
         self.acceleration = self.velocity/3 # How quickly to reach desired velocity
-        self.turning_radius = 0.3         # Minimum turning radius in meters
+        self.turning_radius = 0.2         # Minimum turning radius in meters
 
 
         # ============ CONTROL PARAMETERS ============
         # These values control how aggressively the robot corrects errors
-        self.tau_s = 0.8  # Time constant for removing along-track error (seconds)
+        self.tau_s = 1  # Time constant for removing along-track error (seconds)
         self.L = 0.2      # Distance constant for removing cross-track and angular error (meters)
 
         # Control gains - these determine how strongly the robot responds to errors
         self.k_s = 1/self.tau_s  # Along-track gain (how strongly to correct forward/backward error)
 
         # Velocity and turning rate limits for safety
-        self.v_max = 0.15          # Maximum forward/backward speed in m/s
+        self.v_max = 0.08         # Maximum forward/backward speed in m/s
         self.w_max = np.deg2rad(15)  # Maximum turning rate in rad/s (15 degrees/s)
 
         # Initialization flags
@@ -102,8 +102,8 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0]
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0]
+        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0]
         self.relative_path = True  # If True, path is relative to robot's starting position
 
 
@@ -155,7 +155,12 @@ class LaptopPilot:
         self.DOTG = 4   # Angular velocity index
 
         # Initialize the state vector with 5 elements
-        self.state = Vector(5)
+        self.state = Vector(3)
+        self.state[self.N] = 0.0  # North position
+        self.state[self.E] = 0.0
+        self.state[self.G] = 0.0  # Heading angle
+
+
 
 
         # ============ LOGGING AND DEBUGGING ============
@@ -226,20 +231,23 @@ class LaptopPilot:
         self.node_intensity = 3
         self.motion_intensity = 1
         self.observation_intensity = 2
-
+        self.reading_timer = 2
         ################ initialise graph ################
         print('Start graph data association')
         self.graph = graphslam_frontend()
         self.graph.anchor(self.sigma)
 
-        self.completed = False
-
-
+        self.completed_loop = False
+        self.corner_detected = False
+        self.optimisation_statement = False
         self.d_p_eb = Vector(3)
         self.d_p_eb[0] = 0
         self.d_p_eb[1] = 0
         self.d_p_eb[2] = 0
 
+        self.last_landmark_id = None  # Track the last landmark we visited
+        self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
+        self.last_landmark_timestamp = None
 
         # Subscribers receive data from the robot
         self.true_wheel_speed_sub = Subscriber(
@@ -298,6 +306,7 @@ class LaptopPilot:
             return  # Skip processing if pose not initialized
 
         # Create array to store converted LIDAR data
+
         self.lidar_data = np.zeros((len(msg.ranges), 2))
 
         # Current robot pose in earth frame
@@ -347,11 +356,7 @@ class LaptopPilot:
                 self.sim_init = False                                         
                 
             # self.sim_time_offset is 0 if not a simulation. Deals with webots dealing in elapse timeself.sim_time_offset
-            print(
-                "Received position update from",
-                datetime.now().timestamp() - msg[0] - self.sim_time_offset,
-                "seconds ago",
-            )
+
             time_stamp = msg[0] + self.sim_time_offset                
 
         pose_msg = PoseStamped() 
@@ -455,7 +460,7 @@ class LaptopPilot:
         z_lm = Vector(2)
 
         for dist in np.arange(0.1, 0.5, 0.2):
-            for i in range(15):
+            for i in range(10):
                 print("dist =", dist, "i =", i)
                 # determine basic pose for each corner
                 if i <= 10:  # southwest corner
@@ -506,7 +511,7 @@ class LaptopPilot:
                 print("end of marker 3", "dist =", dist, "i =", i)
         print("End loop 1, len of corner_training=", len(corner_training))
         # decide some random position and angular offsets to make sure the training data is varied
-        for i in range(15):
+        for i in range(10):
             # determine basic pose for each wall
             if i <= 10:  # west wall
                 p[0] = 0.8
@@ -588,43 +593,74 @@ class LaptopPilot:
             self.true_wheel_speed_sub.stop()
 
 
-    def motion_model(self, state, u, dt):
+
+    def graph_optimisation_solve(self, graph_opt):
+        # Initialize variables
+        initial_residual=100
+        residual_threshold=1E-12
+        delta_threshold=1/1000
+        lim_iterations=20
+        n_iterations = 0
+        delta_residual = initial_residual
+        residual = initial_residual
+
+        iteration_continue = True 
+        residual_continue = True
+        converge_continue = True
+
+        # Start timer for solver performance measurement
+        #cpu_start_solver = datetime.now()
+
+        while iteration_continue and residual_continue and converge_continue:    
+            graph_opt.solve()
+            
+            prev_residual = residual
+            residual = graph_opt.residual
+
+            delta_residual = abs((prev_residual - residual) /prev_residual)
+            n_iterations += 1
+
+        # print('**************  Residual = ',residual,' ***************')        
+            residual_continue = (residual > residual_threshold)
+        # print('Residual above threshold?',residual_continue)    
+            
+        # print('************** Iteration = ',n_iterations,' ***************')
+            iteration_continue = (n_iterations <= lim_iterations)
+            #print('Iterations below limit?',iteration_continue)
+            
+            #print('********* Delta Residual = ',delta_residual,' ***************')
+            converge_continue = (delta_residual > delta_threshold)
+            #print('Residual still changing?',converge_continue)
+            
+            #reconstruct the graph with these nodes
+            graph_opt = graphslam_frontend(graph_opt)   # Task
+            graph_opt.construct_graph() # Task
+            graph_opt = graphslam_backend(graph_opt)    # Task
+            
+        
+            #cpu_end_solver = datetime.now()
+            #delta =  cpu_end_solver - cpu_start_solver       
+            #print('********* Final solution took:',(delta.total_seconds()),'s ***************')   
+
+
+        return graph_opt
+
+    def stop_robot(self):
         """
-        Predict how the robot's state changes based on control inputs.
-        This implements the differential drive motion model.
-
-        Args:
-            state: Current state vector [N, E, G, DOTX, DOTG]
-            u: Control input [forward velocity, angular velocity]
-            dt: Time step in seconds
-
-        Returns:
-            Updated state vector
+        Stops the robot by setting wheel speeds to zero.
         """
-        # Extract current state values
-        N_k_1 = state[self.N]      # Current north position
-        E_k_1 = state[self.E]      # Current east position
-        G_k_1 = state[self.G]      # Current heading
-        DOTX_k_1 = state[self.DOTX]  # Current forward velocity
-        DOTG_k_1 = state[self.DOTG]  # Current angular velocity
+        # Create wheel speed command message with zero speeds
+        wheel_speed_msg = Vector3Stamped()
+        wheel_speed_msg.vector.x = 0.0  # Right wheel speed
+        wheel_speed_msg.vector.y = 0.0  # Left wheel speed
 
-        # Create position vector
-        p = Vector(3)
-        p[self.N] = N_k_1
-        p[self.E] = E_k_1
-        p[self.G] = G_k_1
+        # Store commands for logging
+        self.cmd_wheelrate_right = wheel_speed_msg.vector.x
+        self.cmd_wheelrate_left = wheel_speed_msg.vector.y
 
-        # Update position using rigid body kinematics
-        # This handles the special case when angular velocity is zero
-        p, _, _, _ = rigid_body_kinematics(p, u, dt, sigma_motion=self.sigma_motion, sigma_xy=self.sigma_xy)  
-
-        # Create new state vector with updated position and velocities
-        new_state = np.vstack((p, u))
-        new_state[0:3] = p    # Updated position
-        new_state[3:5] = u    # New velocities from control input
-
-        return new_state
-
+        # Send stop command to robot
+        self.wheel_speed_pub.publish(wheel_speed_msg)
+        self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
 
 
     def infinite_loop(self):
@@ -636,7 +672,8 @@ class LaptopPilot:
         3. Computes control commands
         4. Sends commands to robot
         """
-
+        p_ = None
+        sigma_ = None
         # ============ SENSING PHASE ============
         # Get the latest position measurement from ArUco markers
         aruco_pose = self.aruco_driver.read()
@@ -652,6 +689,11 @@ class LaptopPilot:
 
             # Wrap angle to [0, 2π] range
             self.measured_pose_yaw_rad = self.measured_pose_yaw_rad % (np.pi*2)
+            p_gt = Vector(3)
+            p_gt[0] = self.measured_pose_northings_m
+            p_gt[1] = self.measured_pose_eastings_m
+            p_gt[2] = self.measured_pose_yaw_rad 
+
 
             # Log the measurement
             self.datalog.log(msg, topic_name="/aruco")
@@ -667,9 +709,7 @@ class LaptopPilot:
             self.state[self.N] = self.measured_pose_northings_m
             self.state[self.E] = self.measured_pose_eastings_m
             self.state[self.G] = self.measured_pose_yaw_rad
-            self.state[self.DOTX] = 0.0  # Start with zero velocity
-            self.state[self.DOTG] = 0.0  # Start with zero angular velocity
-
+         
             print('Initial state:')
             print(self.state)
 
@@ -688,6 +728,8 @@ class LaptopPilot:
             # Generate trajectory based on starting position
             self.generate_trajectory()
 
+
+            
             print("TRAINING GAUSSIAN MODEL, PLEASE WAIT")
 
 
@@ -729,6 +771,8 @@ class LaptopPilot:
                 kernel=kernel, random_state=0
             ).fit(X_train, y_train)
 
+
+
             self.initialise_pose = False
 
 
@@ -736,9 +780,8 @@ class LaptopPilot:
         # Only run control if initialized and have wheel speed measurements
         if (self.initialise_pose != True and
             self.measured_wheelrate_right is not None and
-            self.measured_wheelrate_left is not None):
+            self.measured_wheelrate_left is not None and self.completed_loop == False):
 
-            self.loop_count += 1
 
             # -------- Motion Model Update --------
             # Convert wheel speeds to robot velocity
@@ -748,15 +791,24 @@ class LaptopPilot:
 
             # Calculate forward and angular velocity
             u = self.ddrive.fwd_kinematics(q)
+            p_gt = Vector(3)
+            p_gt[0] = self.measured_pose_northings_m
+            p_gt[1] = self.measured_pose_eastings_m
+            p_gt[2] = self.measured_pose_yaw_rad 
+
 
             # Calculate time step
             t_now = datetime.utcnow().timestamp()
             dt = t_now - self.t_prev
             self.t += dt
             self.t_prev = t_now
+    
 
-            # Update state estimate using motion model only (no ArUco correction)
-            self.state = self.motion_model(self.state, u, dt)
+            p_=copy.copy(self.state)
+            sigma_=copy.copy(self.sigma)  
+            #print(self.sigma)
+            self.state, self.sigma, dp, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
+
 
             # Extract pose estimates from state
             self.est_pose_northings_m = self.state[self.N, 0]
@@ -766,264 +818,7 @@ class LaptopPilot:
             p_eb = Vector(3); 
             p_eb[0] = self.est_pose_northings_m  # North position
             p_eb[1] = self.est_pose_eastings_m   # East position
-            p_eb[2] = self.est_pose_yaw_rad      # Heading angle
-
-            H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
-
-            # IF CORNER DETECTED, UPDATE THE GRAPH
-            flag = False
-            t_em = Vector(2)
-            t_em[0] = 0
-            t_em[1] = 0
-            observation, _ = lidar_scan(
-                p_eb, self.lidar_data, self.lidar, self.sigma_observe
-            )
-            if (
-                observation is not None
-                or not np.isnan(observation.data_filled[:, 0]).any()
-            ):
-                new_observation = self.GPC_input_output(observation, None)
-                new_observation.label = self.gpc_corner.classes_[
-                    np.argmax(
-                        self.gpc_corner.predict_proba(
-                            [new_observation.data_filled[:, 0]]
-                        )
-                    )
-                ]
-                if new_observation.label == "corner":
-                    flag = True
-                    r, theta, idx = self.find_corner(new_observation)
-                    if r is not None:
-                        # Convert polar coordinates to cartesian in sensor frame
-                        x_l, y_l = polar2cartesian(r, theta)
-                        
-                        # Convert to environment frame using current robot pose
-                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
-                        t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
-                        
-                        self.corner_pose_northings = t_em[0]
-                        self.corner_pose_eastings = t_em[1]
-                        print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
-            #t_em, flag = self.run_classifier(p_eb)
-
-
-
-            # Get the current pose in the graph
-
-
-            #CONDITION FOR WHEN A LANDMARK IS OBSERVED
-            if flag == True:
-               
-                _, _, t_lm, sigma_xy_lm = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
-                   
-                self.sigma_xy[0,0] = sigma_xy_lm[0,0]
-                self.sigma_xy[1,1] = sigma_xy_lm[1,1]
-
-
-                if (p_eb[0] < 1 and p_eb[1] < 1):
-                    landmark_id = 0
-
-                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 0 and p_eb[1] < 1 ):
-                    landmark_id = 1               
-
-                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
-                    landmark_id = 2
-
-                elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
-                    landmark_id = 3 
-
-
-                if hasattr(t_em, 'shape') and t_em.shape == (2,):
-                    t_em = t_em.reshape(2, 1)
-                    
-                if hasattr(t_lm, 'shape') and t_lm.shape == (2,):
-                    t_lm = t_lm.reshape(2, 1)
-
-                # adds to the graph as a landmark observation together with its ID
-                # Check if none of the crucial values are NaN
-                if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
-                    not np.isnan(t_em[0]) and not np.isnan(t_em[1])):
-                    self.graph.observation(t_em, self.sigma_xy, landmark_id, t_lm)   
-                    print('t_lm', t_lm) 
-
-                print('Observation of Landmark ID', landmark_id)
-
-            else:
-      
-                
-                # store current pose and covariance
-                p_ = copy.copy(p_eb)
-                sigma_ = copy.copy(self.sigma_xy)
-
-                # progress pose through motion model
-
-
-                p_eb, self.sigma_xy, self.d_p_eb, _ = rigid_body_kinematics(p_eb, u, dt=dt, sigma_motion=self.sigma_motion, sigma_xy=sigma_)
-
-
-                # adds to the graph as a motion
-                self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
-                print('Underwent Motion')
-
-
-
-            if self.completed == True:
-    
-                # completes the motion
-                self.graph.motion(p_eb, self.sigma_xy, Vector(3), final=True)
-                print('Finish graph data association')
-                print('*************************************************')
-
-                print('Before graph construction:')
-                self.graph.construct_graph()
-
-                print('After graph construction:')
-
-            ################################## BACKEND ######################################
-
-                initial_residual = 100  # just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
-                initial_flag = True
-
-                residual_threshold = 1E-12  # if result changes by <1
-                delta_threshold = 1/10  # if result changes by <1
-                lim_iterations = 20
-
-                n_iterations = 0
-                delta_residual = initial_residual
-                residual = initial_residual
-
-                visualise_flag = False
-                iteration_continue = True
-                residual_continue = True
-                converge_continue = True
-
-                # if any of the conditions become false, then while loop will exit
-                cpu_start_solver = datetime.now()
-
-
-                graph_init = copy.deepcopy(self.graph)
-                graph_validate = copy.deepcopy(self.graph)
-                graph_opt = graphslam_backend(self.graph)
-
-                while iteration_continue and residual_continue and converge_continue:
-                    graph_opt.solve()
-
-                    prev_residual = residual
-                    residual = graph_opt.residual
-
-                    delta_residual = abs((prev_residual - residual) / prev_residual)
-                    n_iterations += 1
-
-                    print('**************  Residual = ', residual, ' ***************')
-                    residual_continue = (residual > residual_threshold)
-                    print('Residual above threshold?', residual_continue)
-
-                    print('************** Iteration = ', n_iterations, ' ***************')
-                    iteration_continue = (n_iterations <= lim_iterations)
-                    print('Iterations below limit?', iteration_continue)
-
-                    print('********* Delta Residual = ', delta_residual, ' ***************')
-                    converge_continue = (delta_residual > delta_threshold)
-                    print('Residual still changing?', converge_continue)
-
-                    # reconstruct the graph with these nodes
-                    graph_opt = graphslam_frontend(graph_opt)   # Task
-                    graph_opt.construct_graph()  # Task
-                    graph_opt = graphslam_backend(graph_opt)    # Task
-
-                cpu_end_solver = datetime.now()
-                delta = cpu_end_solver - cpu_start_solver
-                print('********* Final solution took:', (delta.total_seconds()), 's ***************')
-
-
-
-                #show the original graph
-                graph_opt = graphslam_backend(graph_init)
-                print('Original graph has:')
-                print('Poses',graph_init.n)
-                print('Landmarks',graph_init.m)
-                print('Edges',graph_init.e)
-
-
-                #show the reduced form
-                pose_graph = graph_opt.reduce2pose()
-                print('Reduced graph has:')
-                print('Poses',pose_graph.n)
-                print('Landmarks',pose_graph.m)
-                print('Edges',pose_graph.e)
-
-                # shows information vector and matrix
-                visualise_flag = True 
-                pose_graph = graph_opt.reduce2pose(visualise_flag)
-                print('Grey cells indicate information that has been modified through the graph reduction')
-
-
-
-                initial_residual = 100 #just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
-                initial_flag = True
-
-                residual_threshold = 1E-12 #if result changes by <1
-                delta_threshold = 1/1000 #if result changes by <1
-                lim_iterations = 20
-
-                n_iterations = 0
-                delta_residual = initial_residual
-                residual = initial_residual
-
-                visualise_flag = False
-                iteration_continue = True 
-                residual_continue = True
-                converge_continue = True
-
-                # reset the pose graph (full_graph_ should be unaffected by previous calculations)
-                pose_graph = graph_opt.reduce2pose(visualise_flag)
-                l = graph_opt.n*3
-
-                # if any of the conditions become false, then while loop will exit
-                cpu_start_solver = datetime.now()
-
-                while iteration_continue and residual_continue and converge_continue:
-                    
-                    pose_graph.solve()    
-                    
-                    prev_residual = residual
-                    residual = pose_graph.residual
-
-                    delta_residual = abs((prev_residual - residual) /prev_residual)
-                    n_iterations += 1
-
-                    print('**************  Residual = ',residual,' ***************')        
-                    residual_continue = (residual > residual_threshold)
-                    print('Residual above threshold?',residual_continue)    
-                    
-                    print('************** Iteration = ',n_iterations,' ***************')
-                    iteration_continue = (n_iterations <= lim_iterations)
-                    print('Iterations below limit?',iteration_continue)
-
-                    print('********* Delta Residual = ', delta_residual, ' ***************')
-                    converge_continue = (delta_residual > delta_threshold)
-                    print('Residual still changing?', converge_continue)
-
-                    #reconstruct the graph with these nodes
-                    graph_opt.state_vector[0:l] = pose_graph.state_vector # Task
-                    graph_opt.state_vector[l:] = Inverse(graph_opt.H[l:,l:])@(graph_opt.b[l:]+graph_opt.H[l:,0:l]@graph_opt.state_vector[0:l])
-                    graph_opt = graphslam_frontend(graph_opt)
-                    graph_opt.construct_graph()
-                    graph_opt = graphslam_backend(graph_opt) 
-                    
-                    pose_graph = graph_opt.reduce2pose(visualise_flag) # Task
-
-                cpu_end_solver = datetime.now()
-
-                show_information(pose_graph.H,pose_graph.n,3,pose_graph.m,2, matrix_compare = graph_init.H[0:l,0:l])
-                    
-
-                delta =  cpu_end_solver - cpu_start_solver
-                print('********* Final solution took:',(delta.total_seconds()),'s ***************')                                                                
-
-################################## BACKEND ######################################
- 
-
+            p_eb[2] = self.est_pose_yaw_rad % (2 * np.pi)     # Heading angle
 
 
             # Log estimated pose
@@ -1032,21 +827,25 @@ class LaptopPilot:
                                      self.est_pose_eastings_m, 
                                      0, 0, 0, 
                                      self.est_pose_yaw_rad])
+            
             self.datalog.log(est_msg, topic_name="/est_pose")
+
+
+            H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2])
 
             # -------- Trajectory Following --------
             if hasattr(self, 'path'):
                 # Check progress along path and update waypoint if needed
 
-                print('Current waypoint ID:', self.path.wp_id)
+                # print('Current waypoint ID:', self.path.wp_id)
 
-                if self.path.wp_id == 9:
-                    self.completed = True
+            
+
 
                 self.path.wp_progress(self.t, self.state[:3], self.turning_radius)
                                 # Get reference position and velocity at current time
                 p_ref, u_ref = self.path.p_u_sample(self.t)
-                print('Completed is:', self.completed)
+                # print('Completed is:', self.completed)
                 # -------- Feedback Control --------
                 # Calculate position error in earth frame
                 dp = Vector(3)
@@ -1098,6 +897,149 @@ class LaptopPilot:
                 # Send commands to robot
                 self.wheel_speed_pub.publish(wheel_speed_msg)
                 self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
+
+
+
+            t_em = Vector(2)
+            t_em[0] = 0
+            t_em[1] = 0
+            observation, _ = lidar_scan(
+                p_eb, self.lidar_data, self.lidar, self.sigma_observe
+            )
+            if (observation is not None or not np.isnan(observation.data_filled[:, 0]).any()):
+                new_observation = self.GPC_input_output(observation, None)
+                new_observation.label = self.gpc_corner.classes_[np.argmax(self.gpc_corner.predict_proba([new_observation.data_filled[:, 0]]))]
+                
+                if new_observation.label == "corner":
+                    self.corner_detected = True
+                    r, theta, idx = self.find_corner(new_observation)
+                    if r is not None:
+                        # Convert polar coordinates to cartesian in sensor frame
+                        x_l, y_l = polar2cartesian(r, theta)
+                        
+                        # Convert to environment frame using current robot pose
+                        H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
+                        t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
+                        
+                        self.corner_pose_northings = t_em[0]
+                        self.corner_pose_eastings = t_em[1]
+                        print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
+                        
+            #t_em, flag = self.run_classifier(p_eb)
+
+
+
+            # Get the current pose in the graph
+
+
+            #CONDITION FOR WHEN A LANDMARK IS OBSERVED
+            if self.corner_detected == True:
+               
+                _, _, t_lm, sigma_xy_lm = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
+                   
+                self.sigma_xy[0,0] = sigma_xy_lm[0,0]
+                self.sigma_xy[1,1] = sigma_xy_lm[1,1]
+
+                if hasattr(t_em, 'shape') and t_em.shape == (2,):
+                    t_em = t_em.reshape(2, 1)
+                    
+                if hasattr(t_lm, 'shape') and t_lm.shape == (2,):
+                    t_lm = t_lm.reshape(2, 1)
+
+
+                if (p_eb[0] < 1 and p_eb[1] < 1):
+                    landmark_id = 0
+
+                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 0 and p_eb[1] < 1 ):
+                    landmark_id = 1               
+
+                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
+                    landmark_id = 2
+
+                elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
+                    landmark_id = 3 
+
+
+                current_time = datetime.utcnow().timestamp()
+
+                if self.last_landmark_timestamp is None or (current_time - self.last_landmark_timestamp) > 3.0:            # Update landmark tracking
+                    self.landmark_visits[landmark_id] += 1
+                    print(f'Observation of Landmark ID {landmark_id} (Visit #{self.landmark_visits[landmark_id]})')
+                    
+                # Check for loop completion: transitioning from landmark 3 back to 0
+                if self.last_landmark_id == 3 and landmark_id == 0:
+                    print("LOOP COMPLETED: Detected transition from landmark 3 back to landmark 0")
+                    self.completed_loop = True
+                
+                self.last_landmark_id = landmark_id
+                self.last_landmark_timestamp = current_time
+
+
+
+                    # CORNER DETECTED at: [2.124, 0.296]
+                    # CORNER DETECTED at: [1.818, 1.327]
+                    # CORNER DETECTED at: [0.672, 2.072]
+                    # CORNER DETECTED at: [-0.445, 0.851]
+
+                # adds to the graph as a landmark observation together with its ID
+                # Check if none of the crucial values are NaN
+                if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
+                    not np.isnan(t_em[0]) and not np.isnan(t_em[1])):
+                    self.graph.observation(t_em, self.sigma_xy, landmark_id, t_lm)   
+                    print('t_lm', t_lm) 
+
+                print('Observation of Landmark ID', landmark_id)
+                self.corner_detected = False
+
+            else:
+      
+ 
+                # adds to the graph as a motion
+                self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
+                # print('Underwent Motion')
+
+
+        # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
+
+        if self.completed_loop == True:
+            self.stop_robot()
+            self.loop_count += 1
+
+            # completes the motion
+            self.graph.motion(p_, sigma_, Vector(3), final=True)
+            print('Finish graph data association')
+            print('*************************************************')
+            
+            ########### BACKEND ###############
+            print('Before graph construction:')
+            self.graph.construct_graph()
+            graph_init = copy.deepcopy(self.graph)
+            graph_validate = copy.deepcopy(self.graph)
+            graph_opt = graphslam_backend(graph_init)
+
+            self.graph_optimisation_solve(graph_opt)
+
+
+            optimised_graph_pose = graph_opt.reduce2pose()
+
+            update_pose = next((p for p in reversed(optimised_graph_pose.pose) if np.any(p != 0)), None)
+            update_pose = np.array(update_pose).flatten()
+
+            print('Graph Optimised')
+            print("Pose:", update_pose)
+    
+            self.state[self.N] = update_pose[self.N]
+            self.state[self.E] = update_pose[self.E]
+            self.state[self.G] = update_pose[self.G]
+
+            update_covariance= next((p for p in reversed(optimised_graph_pose.pose_covariance) if np.any(p != 0)), None)
+
+            self.sigma = update_covariance
+
+            print('After graph construction')
+            self.completed_loop = False
+
+
 
 
 if __name__ == "__main__":

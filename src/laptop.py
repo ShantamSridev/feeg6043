@@ -875,66 +875,13 @@ class LaptopPilot:
 
                 print('Before graph construction:')
                 self.graph.construct_graph()
-
                 print('After graph construction:')
 
             ################################## BACKEND ######################################
 
-                initial_residual = 100  # just needs to be a big number to avoid triggering convergence if the first iteration has large residuals
-                initial_flag = True
-
-                residual_threshold = 1E-12  # if result changes by <1
-                delta_threshold = 1/10  # if result changes by <1
-                lim_iterations = 20
-
-                n_iterations = 0
-                delta_residual = initial_residual
-                residual = initial_residual
-
-                visualise_flag = False
-                iteration_continue = True
-                residual_continue = True
-                converge_continue = True
-
-                # if any of the conditions become false, then while loop will exit
-                cpu_start_solver = datetime.now()
-
-
                 graph_init = copy.deepcopy(self.graph)
                 graph_validate = copy.deepcopy(self.graph)
                 graph_opt = graphslam_backend(self.graph)
-
-                while iteration_continue and residual_continue and converge_continue:
-                    graph_opt.solve()
-
-                    prev_residual = residual
-                    residual = graph_opt.residual
-
-                    delta_residual = abs((prev_residual - residual) / prev_residual)
-                    n_iterations += 1
-
-                    print('**************  Residual = ', residual, ' ***************')
-                    residual_continue = (residual > residual_threshold)
-                    print('Residual above threshold?', residual_continue)
-
-                    print('************** Iteration = ', n_iterations, ' ***************')
-                    iteration_continue = (n_iterations <= lim_iterations)
-                    print('Iterations below limit?', iteration_continue)
-
-                    print('********* Delta Residual = ', delta_residual, ' ***************')
-                    converge_continue = (delta_residual > delta_threshold)
-                    print('Residual still changing?', converge_continue)
-
-                    # reconstruct the graph with these nodes
-                    graph_opt = graphslam_frontend(graph_opt)   # Task
-                    graph_opt.construct_graph()  # Task
-                    graph_opt = graphslam_backend(graph_opt)    # Task
-
-                cpu_end_solver = datetime.now()
-                delta = cpu_end_solver - cpu_start_solver
-                print('********* Final solution took:', (delta.total_seconds()), 's ***************')
-
-
 
                 #show the original graph
                 graph_opt = graphslam_backend(graph_init)
