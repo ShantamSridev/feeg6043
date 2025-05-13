@@ -339,7 +339,23 @@ class LaptopPilot:
         p[self.G] = G_k_1
         
         # note rigid_body_kinematics already handles the exception dynamics of w=0
-        p = rigid_body_kinematics(p,u,dt)    
+        # m = Matrix[3,2]
+        # m_ugt = None
+        # s_xy = Matrix[3,3]
+        # p = rigid_body_kinematics(p,u,dt,m_ugt, m, s_xy )    
+
+        sigma = Matrix(3,3) 
+        sigma[0,0]=0.1
+        sigma[0,1]=0.01
+        sigma[1,0]=0.01
+        sigma[1,1]=0.1
+        sigma[0,2]=0.01
+        sigma[1,2]=0.01
+        sigma[2,0]=0.01
+        sigma[2,1]=0.01
+        sigma[2,2]=0.1
+        sigma_motion = Matrix(3,2)  # Create a new 3x2 matrix instance
+        p, _, _, _ = rigid_body_kinematics(p, u, dt=dt, sigma_motion=sigma_motion, sigma_xy=sigma)
 
         # vertically joins two vectors together
         state = np.vstack((p, u))
