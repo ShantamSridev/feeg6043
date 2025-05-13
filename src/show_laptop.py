@@ -22,14 +22,8 @@ from pglive.sources.live_plot import LiveScatterPlot
 from pglive.sources.live_plot_widget import LivePlotWidget
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt
-# from graphSLAM.latestlaptopwithgraphslam import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
-# from benlaptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
-# from earliestlaptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
-# from graphSLAM.myowngraphSLAM import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
-# from graphSLAM.latestlaptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
-from graphSLAM.laptopGRAPHSLAM12 import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
-
-
+from laptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
+#from laptop import LaptopPilot #imports LaptopPilot from `./laptop.py`. If you want to run another version, change laptop on this line to whatever you have called the file you want to run. You don't need to include the py
 class Window(QWidget):
     running = False
 
@@ -60,6 +54,7 @@ class Window(QWidget):
         measured_position = LiveScatterPlot(symbol = 'x', pen = 'green', name = 'Measured Position')
         waypoints = LiveScatterPlot(symbol = 'o', pen = 'red', name = 'Waypoints')
         lidar = LiveScatterPlot(symbol = 'o', size = 1, pen = 'w', name = 'Lidar')
+        corner_positions = LiveScatterPlot(symbol='t', size=5, pen='yellow', name='Corners')
         
         # Data connectors for each plot with dequeue of 600 points
         self.cmd_wheelrate_right = DataConnector(cmd_wheelrate_right, max_points=1500)
@@ -74,6 +69,7 @@ class Window(QWidget):
         self.measured_position = DataConnector(measured_position, max_points=100)
         self.waypoints = DataConnector(waypoints, max_points=50)
         self.lidar = DataConnector(lidar, max_points=3000)
+        self.corner_positions = DataConnector(corner_positions, max_points=500)
         
         # Show grid
         self.wheelrate_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -104,7 +100,10 @@ class Window(QWidget):
         self.position_plot.addItem(est_position)
         self.position_plot.addItem(measured_position)
         self.position_plot.addItem(waypoints)
-        self.position_plot.addItem(lidar)       
+        self.position_plot.addItem(lidar)
+        self.position_plot.addItem(corner_positions)
+        
+        #self.corner_positions.cb_append_data_point(0, 0)
 
 
 
@@ -153,6 +152,15 @@ class Window(QWidget):
                 measured_pose_northings_m = None
                 measured_pose_eastings_m = None
                 measured_pose_yaw_rad = None
+            
+            # Corner positions
+            if self.Laptop.corner_pose_northings is not None and self.Laptop.corner_pose_eastings is not None:
+                corner_pose_northings = self.Laptop.corner_pose_northings
+                corner_pose_eastings = self.Laptop.corner_pose_eastings
+            else:
+                corner_pose_northings = None
+                corner_pose_eastings = None
+
 
             # waypoints # 
             if northings_path != self.Laptop.northings_path or eastings_path != self.Laptop.eastings_path:                  
@@ -183,9 +191,11 @@ class Window(QWidget):
             # estimated and measured positions
             if est_pose_northings_m is not None and est_pose_eastings_m is not None:
                 self.est_position.cb_append_data_point(est_pose_northings_m, est_pose_eastings_m)
-            if measured_pose_northings_m is not None and measured_pose_eastings_m is not None  and measured_pose_timestamp_s > measured_pose_stamp_prev:
+            if measured_pose_northings_m is not None and measured_pose_eastings_m is not None:  #and measured_pose_timestamp_s > measured_pose_stamp_prev:
                 self.measured_position.cb_append_data_point(measured_pose_northings_m, measured_pose_eastings_m)
-    
+            if corner_pose_northings is not None and corner_pose_eastings is not None:
+                self.corner_positions.cb_append_data_point(corner_pose_northings, corner_pose_eastings)
+
             #lidar 
             if lidar_data is not None and lidar_timestamp_s != lidar_timestamp_s_prev:
                 for point in lidar_data:

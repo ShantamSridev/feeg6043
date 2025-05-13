@@ -403,8 +403,8 @@ class RangeAngleKinematics():
         H_eb = HomogeneousTransformation(p_eb[0:2],p_eb[2])
 
         # get the location of the map feature in the body frame using Inverse(H_eb)=H_be, and then to from the body to the sensor frame using Inverse(H_bl)=H_lb
+      
         t_lm = t2v(Inverse(self.H_bl.H)@Inverse(H_eb.H)@v2t(t_em))
-
         # Convert the cartesian vector t_lm in the sensor frame to the equivalent polar coordinates
         r,theta = cartesian2polar(t_lm[0],t_lm[1])
 
@@ -1024,7 +1024,6 @@ class TrajectoryGenerate():
         scheduled_time = 0 #s
         
         wp_progress_flag = False # flag to progress to next waypoint
-        flag_complete = False
 
         # check distance to the next waypoint
         distance_to_wp = np.sqrt((P[self.wp_id,0]-p_robot[0])**2+(P[self.wp_id,1]-p_robot[1])**2)
@@ -1054,10 +1053,7 @@ class TrajectoryGenerate():
                 
                 print('************************************************************')
                 print('Trajectory completed at:',self.t_complete,'s')    
-                print('************************************************************')           
-                flag_complete = True  
-            else:
-                flag_complete = False
+                print('************************************************************')                
         else:
             # if within acceptance radius, follow trajectory to next waypoint
             if distance_to_wp <= accept_radius:                
@@ -1087,7 +1083,7 @@ class TrajectoryGenerate():
                         for i in range(self.wp_id-1,len(Tp)): Tp[i]=Tp[i]+delay
                         if len(self.Tp_arc) == 1: self.Tp = copy.copy(Tp)
                         else: self.Tp_arc = copy.copy(Tp)                 
-        return flag_complete
+         
                 
     def _point_to_point(self, x_points,y_points, params, start_stationary = True, end_stationary = True):
 
@@ -1665,6 +1661,7 @@ class graphslam_frontend:
         self.pose.append(copy.copy(p))   
         self.pose_covariance.append(copy.copy(sigma))          
         
+
     def construct_graph(self,visualise_flag = False):        
         print('Constructing graph with:')   
                     
@@ -1685,7 +1682,8 @@ class graphslam_frontend:
         
         self.b = Vector(3*self.n+2*self.m)        
         self.H = Matrix(3*self.n+2*self.m,3*self.n+2*self.m)
-                
+        
+        print('Constructing graph 1')   
         #constrain the initial location
         self.H[0:3,0:3] = Inverse(self.sigma_anchor) 
 
@@ -1716,7 +1714,26 @@ class graphslam_frontend:
                     print('A_ij',A_ij)         
                     print('self.bij',self.bij)
                     
-                sigma_ij = self.pose_covariance[j]-self.pose_covariance[i]#-
+                sigma_ij = self.pose_covariance[j]-self.pose_covariance[i]
+
+
+                # Condition 1: Check if sigma_ij is all zeros
+                is_all_zeros = np.all(sigma_ij == 0)
+                # Condition 2: Check if sigma_ij contains any NaN
+                has_nan = np.isnan(sigma_ij).any()
+
+                if is_all_zeros or has_nan:
+                    print("sigma_ij = ", np.shape(sigma_ij), sigma_ij)
+                    if is_all_zeros:
+                        print("Reason: sigma_ij is all zeros.")
+                    if has_nan:
+                        print("Reason: sigma_ij contains NaN values.")
+                    print("----------------------------- instance skipped for k = ",k, '---------------------------------')
+                    continue
+                else:
+                    # This block will now only be executed if sigma_ij is not all zeros AND does not contain NaN
+                    print("sigma_ij = ", np.shape(sigma_ij), sigma_ij)
+                    print('Unskipped k = ',k)
 
                 # populate information vector and matrix
                 self.b[3*i:3*i+3] += (e_ij.T@Inverse(sigma_ij)@A_ij).T
@@ -1727,22 +1744,27 @@ class graphslam_frontend:
                 self.H[3*j:3*j+3,3*i:3*i+3] += self.bij.T@Inverse(sigma_ij)@A_ij
                 self.H[3*j:3*j+3,3*j:3*j+3] += self.bij.T@Inverse(sigma_ij)@self.bij     
 
-            if edge_type == 'landmark':        
+            if edge_type == 'landmark':   
+                print('Constructing graph 2')       
                 #point to correct location in the extended state vector
                 self.state_vector[3*i:3*i+3]=self.pose[i]                                
                 l = 3*self.n+2*self.unique_landmark.index(self.landmark_id_array[j])  
                 # associate the constraint
                 z_il =self.edge[k][3]
+                print('Constructing graph 2.1')   
                 
                 # construct the information vector and matrix using the observation Jacobian                      
                 if np.all(self.state_vector[l:l+2]) == 0.0: 
+                    print('Constructing graph 2.2') 
                     self.state_vector[l:l+2]=copy.copy(self.landmark[j])
+                    print('Constructing graph 2.2.2')
                     e_il,A_il,self.bil = self._Jacobian(edge_type,self.state_vector[3*i:3*i+3],self.state_vector[l:l+2],z_il)
-                    
-                else:                    
+                    print('Constructing graph 2.2.3')
+                else:       
+                    print('Constructing graph 2.3')              
                     # deals with the loop closure by keeping first landmark position but using new landmark observation constraint to isolate inconsistency
                     e_il,A_il,self.bil = self._Jacobian(edge_type,self.state_vector[3*i:3*i+3],self.state_vector[l:l+2],z_il,visualise_flag)
-
+                print('Constructing graph 2.5')
                 if visualise_flag == True:
                     print('self.pose[i]  ',self.pose[i]  )
                     print('self.landmark[j]  ',self.landmark[j]  )                
@@ -1761,7 +1783,7 @@ class graphslam_frontend:
                 self.H[3*i:3*i+3,l:l+2] += A_il.T@Inverse(sigma_il)@self.bil
                 self.H[l:l+2,3*i:3*i+3] += self.bil.T@Inverse(sigma_il)@A_il                    
                 self.H[l:l+2,l:l+2] += self.bil.T@Inverse(sigma_il)@self.bil  
-                
+                print('Constructing graph 3')  
             if visualise_flag == True:
                 print('Information vector (b)')
                 show_information(self.b,self.n,3,self.m,2)                
@@ -1833,8 +1855,8 @@ class graphslam_frontend:
             dR_i_d_g_i = Matrix(2,2)
             dR_i_d_g_i[0,0] = -np.sin(X_i.gamma)
             dR_i_d_g_i[1,1] = -np.sin(X_i.gamma)
-            dR_i_d_g_i[0,1] = -np.cos(X_i.gamma)    #POSSIBLY FLIPPED
-            dR_i_d_g_i[1,0] = np.cos(X_i.gamma)   #POSSIBLY FLIPPED         
+            dR_i_d_g_i[0,1] = -np.cos(X_i.gamma)
+            dR_i_d_g_i[1,0] = np.cos(X_i.gamma)            
 
             A_il = Matrix(2,3)            
             A_il[0:2,0:2] = -X_i.R.T
@@ -2029,21 +2051,26 @@ class graphslam_backend:
         cpu_start = datetime.now()
         
         # calculate the upper Cholesky triangle
-
+        print('Cholesky 1')
+        print("H matrix before regularization:")
+        print(self.H)
         self.H = self.H + 0.00001*Identity(len(self.H))
+        print('Cholesky 1.1')
         U = cholesky(self.H, lower=False)
+        print('Cholesky 1.2')
         # Solve a linear system using Cholesky decomposition
+        print('Cholesky 2')
         v = Inverse(U.T) @ self.b
         self.dx = - Inverse(U) @ v    
         self._update_nodes()  
-        
+        print('Cholesky 3')
         cpu_end = datetime.now()    
         
         self.sigma = Inverse(U) @ Inverse(U.T)
 
         self.residual = np.sum(abs(self.dx)/len(self.dx))
         delta =  cpu_end - cpu_start
-        
+        print('Cholesky 4')
         print('Solver took:',(delta.total_seconds() * 1000),'ms')   
 
         if visualise_flag == True:
