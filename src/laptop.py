@@ -851,7 +851,7 @@ class LaptopPilot:
                 elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
                     landmark_id = 3 
                 # adds to the graph as a landmark observation together with its ID
-                self.graph.observation(t_em, self.sigma_xy, landmark_id, t_lm)  # Task
+                self.graph.observation(t_em, sigma_xy_lm, landmark_id, t_lm)  # Task
                 print('Observation of Landmark ID', landmark_id)
 
             else:
@@ -863,8 +863,17 @@ class LaptopPilot:
 
                 # progress pose through motion model
 
-
-                p_eb, self.sigma_xy, self.d_p_eb, _ = rigid_body_kinematics(p_eb, u, dt=dt, sigma_motion=self.sigma_motion, sigma_xy=sigma_)
+                sigma = Matrix(3,3) 
+                sigma[0,0]=0.1
+                sigma[0,1]=0.01
+                sigma[1,0]=0.01
+                sigma[1,1]=0.1
+                sigma[0,2]=0.01
+                sigma[1,2]=0.01
+                sigma[2,0]=0.01
+                sigma[2,1]=0.01
+                sigma[2,2]=0.1
+                p_eb, self.sigma_xy, self.d_p_eb, _ = rigid_body_kinematics(p_eb, u, dt=dt, sigma_motion=self.sigma_motion, sigma_xy=sigma)
 
 
                 # adds to the graph as a motion
