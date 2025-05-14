@@ -181,30 +181,22 @@ class LaptopPilot:
         
          # ============ SLAM SETUP ============
 
-        # Create a GraphSLAM2D object for SLAM
-        self.sigma_xy = Matrix(3, 3)
-        self.sigma_xy[0, 0] = 0.01  # Small non-zero value
-        self.sigma_xy[1, 1] = 0.01  # Small non-zero value
-        self.sigma_xy[2, 2] = 0.01  # Small non-zero value
-
-
-
         # Motion model linear noise due to v and w
         self.sigma_motion = Matrix(3, 2)
-        self.sigma_motion[0, 0] = 0.05*2    # impact of v linear velocity on x
-        self.sigma_motion[0, 1] = np.deg2rad(0.05)**2  # impact of w angular velocity on x
-        self.sigma_motion[1, 0] = 0.05**2   # impact of v linear velocity on y
-        self.sigma_motion[1, 1] = np.deg2rad(0.05)**2  # impact of w angular velocity on y
-        self.sigma_motion[2, 0] = 0.05**2   # impact of v linear velocity on gamma
-        self.sigma_motion[2, 1] = np.deg2rad(0.05)**2  # impact of w angular velocity on gamma
+        self.sigma_motion[0, 0] = 0.1*2    # impact of v linear velocity on x
+        self.sigma_motion[0, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on x
+        self.sigma_motion[1, 0] = 0.1**2   # impact of v linear velocity on y
+        self.sigma_motion[1, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on y
+        self.sigma_motion[2, 0] = 0.1**2   # impact of v linear velocity on gamma
+        self.sigma_motion[2, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on gamma
         print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
         # Observation model linear noise with range
         self.sigma_observe = Matrix(2, 2)
         self.sigma_observe[0, 0] = 0.1**2  # 10% of range
-        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[0, 1] = 0.01 **2
         self.sigma_observe[1, 0] = np.deg2rad(5)**2  # 5 degree per metre range
-        self.sigma_observe[1, 1] = 0
+        self.sigma_observe[1, 1] = 0.1**2
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
 
@@ -244,6 +236,10 @@ class LaptopPilot:
         self.d_p_eb[0] = 0
         self.d_p_eb[1] = 0
         self.d_p_eb[2] = 0
+
+
+
+
 
         self.last_landmark_id = None  # Track the last landmark we visited
         self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
@@ -345,6 +341,10 @@ class LaptopPilot:
         """
         self.datalog.log(msg, topic_name="/groundtruth")
 
+
+
+
+    
 
     def pose_parse(self, msg, aruco = False):
         # parser converts pose data to a standard format for logging
@@ -663,6 +663,22 @@ class LaptopPilot:
         self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
 
 
+    def evaluate_graphslam_performance(self, initial_pose, optimised_pose, ground_truth_pose):
+        print("Before Optimisation Pose:", initial_pose)
+        print("Optimised Pose:", optimised_pose)
+        print("Actual Pose:", ground_truth_pose)
+        
+        # Calculate error metrics
+        position_error = self.calculate_position_error(optimised_pose, ground_truth_pose)
+        
+        print(f"Position Error: {position_error:.4f} meters")
+        
+        return position_error
+
+    def calculate_position_error(pose1, pose2):
+        """Calculate Euclidean distance between position components of poses"""
+        return np.linalg.norm(pose1[:3, 3] - pose2[:3, 3])
+
     def infinite_loop(self):
         """
         Main control loop that runs continuously.
@@ -687,8 +703,8 @@ class LaptopPilot:
             self.measured_pose_eastings_m = msg.pose.position.y
             _, _, self.measured_pose_yaw_rad = msg.pose.orientation.to_euler()
 
-            # Wrap angle to [0, 2π] range
             self.measured_pose_yaw_rad = self.measured_pose_yaw_rad % (np.pi*2)
+
             p_gt = Vector(3)
             p_gt[0] = self.measured_pose_northings_m
             p_gt[1] = self.measured_pose_eastings_m
@@ -935,10 +951,9 @@ class LaptopPilot:
             #CONDITION FOR WHEN A LANDMARK IS OBSERVED
             if self.corner_detected == True:
                
-                _, _, t_lm, sigma_xy_lm = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
+                _, _, t_lm, sigma_xy = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
                    
-                self.sigma_xy[0,0] = sigma_xy_lm[0,0]
-                self.sigma_xy[1,1] = sigma_xy_lm[1,1]
+
 
                 if hasattr(t_em, 'shape') and t_em.shape == (2,):
                     t_em = t_em.reshape(2, 1)
@@ -985,7 +1000,8 @@ class LaptopPilot:
                 # Check if none of the crucial values are NaN
                 if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
                     not np.isnan(t_em[0]) and not np.isnan(t_em[1])):
-                    self.graph.observation(t_em, self.sigma_xy, landmark_id, t_lm)   
+                    
+                    self.graph.observation(t_em, sigma_xy, landmark_id, t_lm)   
                     print('t_lm', t_lm) 
 
                 print('Observation of Landmark ID', landmark_id)
@@ -1025,9 +1041,11 @@ class LaptopPilot:
             update_pose = next((p for p in reversed(optimised_graph_pose.pose) if np.any(p != 0)), None)
             update_pose = np.array(update_pose).flatten()
 
-            print('Graph Optimised')
-            print("Pose:", update_pose)
-    
+
+            self.evaluate_graphslam_performance(
+                self.state, update_pose, p_gt
+            )
+
             self.state[self.N] = update_pose[self.N]
             self.state[self.E] = update_pose[self.E]
             self.state[self.G] = update_pose[self.G]
