@@ -184,11 +184,11 @@ class LaptopPilot:
 
         # Motion model linear noise due to v and w
         self.sigma_motion = Matrix(3, 2)
-        self.sigma_motion[0, 0] = 0.1*2    # impact of v linear velocity on x
-        self.sigma_motion[0, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on x
-        self.sigma_motion[1, 0] = 0.1**2   # impact of v linear velocity on y
+        self.sigma_motion[0, 0] = 0.1*2  # impact of v linear velocity on x           # Task
+        self.sigma_motion[0, 1] = np.deg2rad(0.1)**2  # impact of w angular velocity on x
+        self.sigma_motion[1, 0] = 0.3**2  # impact of v linear velocity on y
         self.sigma_motion[1, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on y
-        self.sigma_motion[2, 0] = 0.1**2   # impact of v linear velocity on gamma
+        self.sigma_motion[2, 0] = 0.1**2  # impact of v linear velocity on gamma
         self.sigma_motion[2, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on gamma
         print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
@@ -202,17 +202,17 @@ class LaptopPilot:
 
 
         # anchor constraint, matrix must be invertable
-        self.sigma = Matrix(3, 3)
-        self.sigma[0, 0] = 0.1
-        self.sigma[0, 1] = 0.01
-        self.sigma[1, 0] = 0.01
-        self.sigma[1, 1] = 0.1
-        self.sigma[0, 2] = 0.01
-        self.sigma[1, 2] = 0.01
-        self.sigma[2, 0] = 0.01
-        self.sigma[2, 1] = 0.01
-        self.sigma[2, 2] = 0.1
 
+        self.sigma = Matrix(3,3) 
+        self.sigma[0,0]=0.1
+        self.sigma[0,1]=0.01
+        self.sigma[1,0]=0.01
+        self.sigma[1,1]=0.1
+        self.sigma[0,2]=0.01
+        self.sigma[1,2]=0.01
+        self.sigma[2,0]=0.01
+        self.sigma[2,1]=0.01
+        self.sigma[2,2]=0.1
 
         # SLAM tracking variables
         self.last_slam_update_time = None
@@ -824,13 +824,14 @@ class LaptopPilot:
             dt = t_now - self.t_prev
             self.t += dt
             self.t_prev = t_now
-    
+            print('infinite loop 4.1')
 
             p_=copy.copy(self.state)
             sigma_=copy.copy(self.sigma)  
             #print(self.sigma)
+            # THE ERROR IS HERE AND IDK YWHY
             self.state, self.sigma, self.d_p_eb, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
-
+            print('infinite loop 4.2')
 
             # Extract pose estimates from state
             self.est_pose_northings_m = self.state[self.N, 0]
