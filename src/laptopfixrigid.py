@@ -6,6 +6,7 @@
 # """
 
 import numpy as np
+import traceback 
 import argparse
 from datetime import datetime
 import time
@@ -102,8 +103,8 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path = [0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0]
+        self.northings_path = [0.0, 1.0, 1.0, 0.0]
+        self.eastings_path = [0.0, 0.0, 1.0, 1.0]
         self.relative_path = True  # If True, path is relative to robot's starting position
 
 
@@ -194,9 +195,9 @@ class LaptopPilot:
         # Observation model linear noise with range
         self.sigma_observe = Matrix(2, 2)
         self.sigma_observe[0, 0] = 0.1**2  # 10% of range
-        self.sigma_observe[0, 1] = 0.01 **2
+        self.sigma_observe[0, 1] = 0
         self.sigma_observe[1, 0] = np.deg2rad(5)**2  # 5 degree per metre range
-        self.sigma_observe[1, 1] = 0.1**2
+        self.sigma_observe[1, 1] = 0
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
 
@@ -585,7 +586,10 @@ class LaptopPilot:
         except KeyboardInterrupt:
             print("KeyboardInterrupt received, stopping…")
         except Exception as e:
-            print("Exception: ", e)
+            print(f"An exception of type {type(e).__name__} occurred.")
+            print(f"Exception message: {str(e)}")
+            print("Detailed traceback:")
+            traceback.print_exc()
         finally:
             # Clean up subscribers
             self.lidar_sub.stop()
@@ -675,7 +679,7 @@ class LaptopPilot:
         
         return position_error
 
-    def calculate_position_error(pose1, pose2):
+    def calculate_position_error(self, pose1, pose2):
         """Calculate Euclidean distance between position components of poses"""
         return np.linalg.norm(pose1[:3, 3] - pose2[:3, 3])
 
@@ -688,6 +692,8 @@ class LaptopPilot:
         3. Computes control commands
         4. Sends commands to robot
         """
+
+        print('infinite loop 1')
         p_ = None
         sigma_ = None
         # ============ SENSING PHASE ============
@@ -709,7 +715,7 @@ class LaptopPilot:
             p_gt[0] = self.measured_pose_northings_m
             p_gt[1] = self.measured_pose_eastings_m
             p_gt[2] = self.measured_pose_yaw_rad 
-
+            print('infinite loop 2')
 
             # Log the measurement
             self.datalog.log(msg, topic_name="/aruco")
@@ -743,7 +749,7 @@ class LaptopPilot:
 
             # Generate trajectory based on starting position
             self.generate_trajectory()
-
+            print('infinite loop 3')
 
             
             print("TRAINING GAUSSIAN MODEL, PLEASE WAIT")
@@ -797,7 +803,7 @@ class LaptopPilot:
         if (self.initialise_pose != True and
             self.measured_wheelrate_right is not None and
             self.measured_wheelrate_left is not None and self.completed_loop == False):
-
+            print('infinite loop 4')
 
             # -------- Motion Model Update --------
             # Convert wheel speeds to robot velocity
@@ -823,7 +829,7 @@ class LaptopPilot:
             p_=copy.copy(self.state)
             sigma_=copy.copy(self.sigma)  
             #print(self.sigma)
-            self.state, self.sigma, dp, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
+            self.state, self.sigma, self.d_p_eb, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
 
 
             # Extract pose estimates from state
@@ -855,7 +861,7 @@ class LaptopPilot:
 
                 # print('Current waypoint ID:', self.path.wp_id)
 
-            
+                print('infinite loop 5')
 
 
                 self.path.wp_progress(self.t, self.state[:3], self.turning_radius)
@@ -944,7 +950,7 @@ class LaptopPilot:
             #t_em, flag = self.run_classifier(p_eb)
 
 
-
+                print('infinite loop 6')
             # Get the current pose in the graph
 
 
@@ -988,7 +994,7 @@ class LaptopPilot:
                 
                 self.last_landmark_id = landmark_id
                 self.last_landmark_timestamp = current_time
-
+                print('infinite loop 7')
 
 
                     # CORNER DETECTED at: [2.124, 0.296]
@@ -1008,8 +1014,8 @@ class LaptopPilot:
                 self.corner_detected = False
 
             else:
-      
- 
+                p_=copy.copy(self.state)
+                sigma_=copy.copy(self.sigma)
                 # adds to the graph as a motion
                 self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
                 # print('Underwent Motion')
@@ -1020,6 +1026,8 @@ class LaptopPilot:
         if self.completed_loop == True:
             self.stop_robot()
             self.loop_count += 1
+            p_=copy.copy(self.state)
+            sigma_=copy.copy(self.sigma)
 
             # completes the motion
             self.graph.motion(p_, sigma_, Vector(3), final=True)
@@ -1045,6 +1053,12 @@ class LaptopPilot:
             self.evaluate_graphslam_performance(
                 self.state, update_pose, p_gt
             )
+
+
+            print('Unoptimised state:', self.state)
+            print('Optimised Pose:', update_pose)
+            print('Actual state:', p_gt)
+
 
             self.state[self.N] = update_pose[self.N]
             self.state[self.E] = update_pose[self.E]
