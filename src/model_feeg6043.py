@@ -1683,13 +1683,13 @@ class graphslam_frontend:
         self.b = Vector(3*self.n+2*self.m)        
         self.H = Matrix(3*self.n+2*self.m,3*self.n+2*self.m)
         
-        print('Constructing graph 1')   
+        # print('Constructing graph 1')   
         #constrain the initial location
         self.H[0:3,0:3] = Inverse(self.sigma_anchor) 
-        print('Constructing graph 1.1')  
+        # print('Constructing graph 1.1')  
         # work through the edges to construct b and H
         for k in range(self.e):
-            print('Constructing graph 1.2')              
+            # print('Constructing graph 1.2')              
             if visualise_flag == True: print('Edge',self.edge[k])
             
             edge_type=self.edge[k][0]
@@ -1697,7 +1697,7 @@ class graphslam_frontend:
             j=self.edge[k][2]    
         
             if edge_type == 'motion':
-                print('Constructing graph 1.2')
+                # print('Constructing graph 1.2')
                 #point to correct location in the extended state vector
                 self.state_vector[3*i:3*i+3]=self.pose[i]
                 self.state_vector[3*j:3*j+3]=self.pose[j]
@@ -1724,17 +1724,10 @@ class graphslam_frontend:
                 has_nan = np.isnan(sigma_ij).any()
 
                 if is_all_zeros or has_nan:
-                    print("sigma_ij = ", np.shape(sigma_ij), sigma_ij)
-                    if is_all_zeros:
-                        print("Reason: sigma_ij is all zeros.")
-                    if has_nan:
-                        print("Reason: sigma_ij contains NaN values.")
-                    print("----------------------------- instance skipped for k = ",k, '---------------------------------')
+                    # print("sigma_ij = ", np.shape(sigma_ij), sigma_ij)
+                    # print("----------------------------- instance skipped for k = ",k, '---------------------------------')
                     continue
-                else:
-                    # This block will now only be executed if sigma_ij is not all zeros AND does not contain NaN
-                    print("sigma_ij = ", np.shape(sigma_ij), sigma_ij)
-                    print('Unskipped k = ',k)
+
 
                 # populate information vector and matrix
                 self.b[3*i:3*i+3] += (e_ij.T@Inverse(sigma_ij)@A_ij).T
@@ -1746,26 +1739,25 @@ class graphslam_frontend:
                 self.H[3*j:3*j+3,3*j:3*j+3] += self.bij.T@Inverse(sigma_ij)@self.bij     
 
             if edge_type == 'landmark':   
-                print('Constructing graph 2')       
                 #point to correct location in the extended state vector
                 self.state_vector[3*i:3*i+3]=self.pose[i]                                
                 l = 3*self.n+2*self.unique_landmark.index(self.landmark_id_array[j])  
                 # associate the constraint
                 z_il =self.edge[k][3]
-                print('Constructing graph 2.1')   
+                # print('Constructing graph 2.1')   
                 
                 # construct the information vector and matrix using the observation Jacobian                      
                 if np.all(self.state_vector[l:l+2]) == 0.0: 
-                    print('Constructing graph 2.2') 
+                    # print('Constructing graph 2.2') 
                     self.state_vector[l:l+2]=copy.copy(self.landmark[j])
-                    print('Constructing graph 2.2.2')
+                    # print('Constructing graph 2.2.2')
                     e_il,A_il,self.bil = self._Jacobian(edge_type,self.state_vector[3*i:3*i+3],self.state_vector[l:l+2],z_il)
-                    print('Constructing graph 2.2.3')
+                    # print('Constructing graph 2.2.3')
                 else:       
-                    print('Constructing graph 2.3')              
+                    # print('Constructing graph 2.3')              
                     # deals with the loop closure by keeping first landmark position but using new landmark observation constraint to isolate inconsistency
                     e_il,A_il,self.bil = self._Jacobian(edge_type,self.state_vector[3*i:3*i+3],self.state_vector[l:l+2],z_il,visualise_flag)
-                print('Constructing graph 2.5')
+                # print('Constructing graph 2.5')
                 if visualise_flag == True:
                     print('self.pose[i]  ',self.pose[i]  )
                     print('self.landmark[j]  ',self.landmark[j]  )                
@@ -1784,12 +1776,12 @@ class graphslam_frontend:
                 self.H[3*i:3*i+3,l:l+2] += A_il.T@Inverse(sigma_il)@self.bil
                 self.H[l:l+2,3*i:3*i+3] += self.bil.T@Inverse(sigma_il)@A_il                    
                 self.H[l:l+2,l:l+2] += self.bil.T@Inverse(sigma_il)@self.bil  
-                print('Constructing graph 3')  
+                # print('Constructing graph 3')  
             if visualise_flag == True:
-                print('Information vector (b)')
+                # print('Information vector (b)')
                 show_information(self.b,self.n,3,self.m,2)                
                 print('Information matrix (H)')                        
-                show_information(self.H,self.n,3,self.m,2)      
+                # show_information(self.H,self.n,3,self.m,2)      
                 
     def _Jacobian(self,edge_type,x_i,x_j,z_ij = None, visualise_flag = False):                             
         if edge_type == 'motion':
@@ -2047,41 +2039,41 @@ class graphslam_backend:
         
     def solve(self, visualise_flag = False):
         from datetime import datetime
-        print('Solve linear system using Cholesky decomposition')
+        # print('Solve linear system using Cholesky decomposition')
 
         cpu_start = datetime.now()
         
         # calculate the upper Cholesky triangle
-        print('Cholesky 1')
-        print("H matrix before regularization:")
-        print(self.H)
+        # print('Cholesky 1')
+        # print("H matrix before regularization:")
+        # print(self.H)
         self.H = self.H + 0.00001*Identity(len(self.H))
-        print('Cholesky 1.1')
+        # print('Cholesky 1.1')
         U = cholesky(self.H, lower=False)
-        print('Cholesky 1.2')
+        # print('Cholesky 1.2')
         # Solve a linear system using Cholesky decomposition
-        print('Cholesky 2')
+        # print('Cholesky 2')
         v = Inverse(U.T) @ self.b
         self.dx = - Inverse(U) @ v    
         self._update_nodes()  
-        print('Cholesky 3')
+        # print('Cholesky 3')
         cpu_end = datetime.now()    
         
         self.sigma = Inverse(U) @ Inverse(U.T)
 
         self.residual = np.sum(abs(self.dx)/len(self.dx))
         delta =  cpu_end - cpu_start
-        print('Cholesky 4')
+        # print('Cholesky 4')
         print('Solver took:',(delta.total_seconds() * 1000),'ms')   
 
         if visualise_flag == True:
-            print('Information vector (b)')
+            # print('Information vector (b)')
             show_information(self.b,self.n,3,self.m,2)            
-            print('Information matrix (H)')
+            # print('Information matrix (H)')
             show_information(self.H,self.n,3,self.m,2)        
-            print('Upper Cholesky triangle (U) of Omega.H')
+            # print('Upper Cholesky triangle (U) of Omega.H')
             show_information(U,self.n,3,self.m,2)
-            print('Covariance matrix (sigma)')
+            # print('Covariance matrix (sigma)')
             show_information(self.sigma,self.n,3,self.m,2)
 
         print('Residual = ',self.residual) 

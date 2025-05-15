@@ -218,17 +218,6 @@ class LaptopPilot:
         self.sigma[2,1]=0.01
         self.sigma[2,2]=0.1
 
-        # SLAM tracking variables
-        self.last_slam_update_time = None
-        self.slam_update_frequency = 1.0  # Update SLAM every 1 second
-        self.landmarks = {}  # Dictionary to track observed landmarks
-        self.wall_point_threshold = 0.1  # Distance threshold to consider points part of same wall
-
-        # SLAM intensity values
-        self.node_intensity = 3
-        self.motion_intensity = 1
-        self.observation_intensity = 2
-        self.reading_timer = 2
         ################ initialise graph ################
         print('Start graph data association')
         self.graph = graphslam_frontend()
@@ -243,7 +232,7 @@ class LaptopPilot:
         self.d_p_eb[2] = 0
 
         self.prob_thresh = 0.75           # min classifier confidence
-        self.max_corner_dist = 0.85       # meters
+        self.max_corner_dist = 2       # meters
 
 
 
@@ -251,6 +240,14 @@ class LaptopPilot:
         self.landmark_id = None
         self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
         self.last_landmark_timestamp = None
+        self.landmark_locations = np.array([
+            [0.0, 0.0],
+            [0.0, 2.0],
+            [2.0, 2.0],
+            [2.0, 0.0]
+        ])
+        self.observation_counter = 0
+
 
         # ——— NEW: open CSV for corner detections ———
         out_dir = os.path.join("logs", "corners")
@@ -413,7 +410,7 @@ class LaptopPilot:
         self.path.turning_arcs(self.turning_radius)
         self.path.wp_id = 0  # Start at first waypoint
 
-    def find_corner(self, corner, threshold=0.01):
+    def find_corner(self, corner, threshold=0.0001):
         # identify the reference coordinate as the inflection point
 
         # Step 1: Compute slope
@@ -598,6 +595,19 @@ class LaptopPilot:
         """Calculate Euclidean distance between position components of poses"""
         return np.linalg.norm(pose1[:3, 3] - pose2[:3, 3])
 
+
+    
+    def qualify_corner(self, detected_corner):
+        tolerance = 0.5
+        print("DETECTED CORNER", detected_corner)
+        for landmark in self.landmark_locations:
+            distance = np.linalg.norm(detected_corner - landmark)
+
+            if distance < tolerance:
+                return True
+
+        return False
+    
     def infinite_loop(self):
         """
         Main control loop that runs continuously.
@@ -608,7 +618,6 @@ class LaptopPilot:
         4. Sends commands to robot
         """
 
-        print('infinite loop 1')
         p_ = None
         sigma_ = None
         # ============ SENSING PHASE ============
@@ -630,11 +639,11 @@ class LaptopPilot:
             p_gt[0] = self.measured_pose_northings_m
             p_gt[1] = self.measured_pose_eastings_m
             p_gt[2] = self.measured_pose_yaw_rad 
-            print('infinite loop 2')
 
             # Log the measurement
             self.datalog.log(msg, topic_name="/aruco")
             self.aruco_count += 1
+
 
 
         # ============ INITIALIZATION PHASE ============
@@ -664,10 +673,6 @@ class LaptopPilot:
 
             # Generate trajectory based on starting position
             self.generate_trajectory()
-            print('infinite loop 3')
-
-            
-            print("TRAINING GAUSSIAN MODEL, PLEASE WAIT")
 
             
             self.gpc_corner = joblib.load('gpc_model.pkl')
@@ -682,7 +687,6 @@ class LaptopPilot:
         if (self.initialise_pose != True and
             self.measured_wheelrate_right is not None and
             self.measured_wheelrate_left is not None and self.completed_loop == False):
-            print('infinite loop 4')
 
             # -------- Motion Model Update --------
             # Convert wheel speeds to robot velocity
@@ -703,7 +707,6 @@ class LaptopPilot:
             dt = t_now - self.t_prev
             self.t += dt
             self.t_prev = t_now
-            print('infinite loop 4.1')
 
             if dt != 0:
                 # self.state, self.covariance = extended_kalman_filter_predict(
@@ -740,7 +743,6 @@ class LaptopPilot:
             # sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
 
             # self.state, self.sigma, self.d_p_eb, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
-            print('infinite loop 4.2')
 
             # Extract pose estimates from state
             self.est_pose_northings_m = self.state[self.N, 0]
@@ -771,7 +773,6 @@ class LaptopPilot:
 
                 # print('Current waypoint ID:', self.path.wp_id)
 
-                print('infinite loop 5')
 
 
                 self.path.wp_progress(self.t, self.state[:3], self.turning_radius)
@@ -852,41 +853,40 @@ class LaptopPilot:
                     if new_observation.label == "corner" and max_p >= self.prob_thresh:
                         # print(f"Detected corner with probability {max_p:.2f} at {new_observation.data_filled[:, 0]}")
                         r, theta, idx = self.find_corner(new_observation)
-                        print('r, theta, idx', r, theta, idx)
-                        if r is not None and r <= self.max_corner_dist:
-                            # Convert polar coordinates to cartesian in sensor frame
+                        # print('r, theta, idx', r, theta, idx)
+                        if r is not None:
                             x_l, y_l = polar2cartesian(r, theta)
-                            
-                            # Convert to environment frame using current robot pose
                             H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
                             t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
-                            
-                            self.corner_pose_northings = t_em[0]
-                            self.corner_pose_eastings = t_em[1]
-                            print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
-                            self.corner_detected = True
-                            ts = datetime.utcnow().isoformat()
-                            self._corner_writer.writerow([
-                                ts,
-                                float(t_em[0]),
-                                float(t_em[1]),
-                                self.landmark_id
-                            ])
-                            self._corner_log.flush()
+                            correctly_located_corner = self.qualify_corner(t_em)
+                        
+                            if correctly_located_corner:
+                                self.corner_detected = True
+                                self.corner_pose_northings = t_em[0]
+                                self.corner_pose_eastings = t_em[1]
+
+                                print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
+                                
+                                ts = datetime.utcnow().isoformat()
+                                self._corner_writer.writerow([
+                                    ts,
+                                    float(t_em[0]),
+                                    float(t_em[1]),
+                                    self.landmark_id
+                                ])
+                                self._corner_log.flush()
                             
                 #t_em, flag = self.run_classifier(p_eb)
     
     
-                    print('infinite loop 6')
                 # Get the current pose in the graph
     
 
             #CONDITION FOR WHEN A LANDMARK IS OBSERVED
             if self.corner_detected == True:
-               
+                self.observation_counter += 1
                 _, _, t_lm, sigma_xy = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
                    
-
 
                 if hasattr(t_em, 'shape') and t_em.shape == (2,):
                     t_em = t_em.reshape(2, 1)
@@ -910,9 +910,9 @@ class LaptopPilot:
 
                 current_time = datetime.utcnow().timestamp()
 
-                if self.last_landmark_timestamp is None or (current_time - self.last_landmark_timestamp) > 3.0:            # Update landmark tracking
-                    self.landmark_visits[self.landmark_id] += 1
-                    print(f'Observation of Landmark ID {self.landmark_id} (Visit #{self.landmark_visits[self.landmark_id]})')
+                # if self.last_landmark_timestamp is None or (current_time - self.last_landmark_timestamp) > 3.0:            # Update landmark tracking
+                #     self.landmark_visits[self.landmark_id] += 1
+                #     print(f'Observation of Landmark ID {self.landmark_id} (Visit #{self.landmark_visits[self.landmark_id]})')
                     
                 # Check for loop completion: transitioning from landmark 3 back to 0
                 if self.last_landmark_id == 3 and self.landmark_id == 0:
@@ -922,7 +922,6 @@ class LaptopPilot:
 
                 self.last_landmark_id = self.landmark_id
                 self.last_landmark_timestamp = current_time
-                print('infinite loop 7')
 
 
                     # CORNER DETECTED at: [2.124, 0.296]
@@ -938,7 +937,7 @@ class LaptopPilot:
                     self.graph.observation(t_em, sigma_xy,self.landmark_id, t_lm)   
                     print('t_lm', t_lm) 
 
-                print('Observation of Landmark ID',self.landmark_id)
+                print( '(',self.observation_counter,')', 'Observation of Landmark ID',self.landmark_id)
                 self.corner_detected = False
 
             else:
@@ -951,8 +950,7 @@ class LaptopPilot:
 
         # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
 
-        if self.loop_count >= 2:
-            print('infinite loop 8')
+        if self.loop_count >= 1:
             self.stop_robot()
             # self.loop_count += 1
             p_=copy.copy(self.state)
