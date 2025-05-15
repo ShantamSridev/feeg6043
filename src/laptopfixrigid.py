@@ -103,8 +103,10 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path = [0.0, 1.0, 1.0, 0.0]
-        self.eastings_path = [0.0, 0.0, 1.0, 1.0]
+        self.northings_path_single = [0.0, 1.0, 1.0, 0.0]
+        self.eastings_path_single = [0.0, 0.0, 1.0, 1.0]
+        self.northings_path = self.northings_path_single + self.northings_path_single + [0.0]
+        self.eastings_path = self.eastings_path_single + self.eastings_path_single + [0.0]  
         self.relative_path = True  # If True, path is relative to robot's starting position
 
 
@@ -182,14 +184,14 @@ class LaptopPilot:
         
          # ============ SLAM SETUP ============
 
-        # Motion model linear noise due to v and w
-        self.sigma_motion = Matrix(3, 2)
-        self.sigma_motion[0, 0] = 0.1*2  # impact of v linear velocity on x           # Task
-        self.sigma_motion[0, 1] = np.deg2rad(0.1)**2  # impact of w angular velocity on x
-        self.sigma_motion[1, 0] = 0.3**2  # impact of v linear velocity on y
-        self.sigma_motion[1, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on y
-        self.sigma_motion[2, 0] = 0.1**2  # impact of v linear velocity on gamma
-        self.sigma_motion[2, 1] = np.deg2rad(0.3)**2  # impact of w angular velocity on gamma
+        #Motion model linear noise due to v and w
+        self.sigma_motion=Matrix(3,2)
+        self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           #Task
+        self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
+        self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+        self.sigma_motion[1,1]=np.deg2rad(1)**2 # impact of w angular velocity on y
+        self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,1]=np.deg2rad(1)**2 # impact of w angular velocity on gamma
         print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
         # Observation model linear noise with range
@@ -243,6 +245,7 @@ class LaptopPilot:
 
 
         self.last_landmark_id = None  # Track the last landmark we visited
+        self.landmark_id = None
         self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
         self.last_landmark_timestamp = None
 
@@ -826,11 +829,41 @@ class LaptopPilot:
             self.t_prev = t_now
             print('infinite loop 4.1')
 
-            p_=copy.copy(self.state)
-            sigma_=copy.copy(self.sigma)  
+            if dt != 0:
+                # self.state, self.covariance = extended_kalman_filter_predict(
+                #     self.state, self.covariance, u, motion_model, self.R, dt
+                # )
+                p_=copy.copy(self.state)
+                sigma_=copy.copy(self.sigma)  
+                #print(self.sigma)
+                self.state, self.sigma, self.d_p_eb, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
+                #print(self.sigma)
+
+            # p_=copy.copy(self.state)
+            # sigma_=copy.copy(self.sigma)  
             #print(self.sigma)
             # THE ERROR IS HERE AND IDK YWHY
-            self.state, self.sigma, self.d_p_eb, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
+            # sigma = Matrix(3,3) 
+            # sigma[0,0]=0.1
+            # sigma[0,1]=0.01
+            # sigma[1,0]=0.01
+            # sigma[1,1]=0.1
+            # sigma[0,2]=0.01
+            # sigma[1,2]=0.01
+            # sigma[2,0]=0.01
+            # sigma[2,1]=0.01
+            # sigma[2,2]=0.1
+
+            # #Motion model linear noise due to v and w
+            # sigma_motion=Matrix(3,2)
+            # sigma_motion[0,0]=0.1**2 # impact of v linear velocity on x           #Task
+            # sigma_motion[0,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on x
+            # sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+            # sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+            # sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
+            # sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
+
+            # self.state, self.sigma, self.d_p_eb, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
             print('infinite loop 4.2')
 
             # Extract pose estimates from state
@@ -970,30 +1003,30 @@ class LaptopPilot:
 
 
                 if (p_eb[0] < 1 and p_eb[1] < 1):
-                    landmark_id = 0
+                   self.landmark_id = 0
 
                 elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 0 and p_eb[1] < 1 ):
-                    landmark_id = 1               
+                   self.landmark_id = 1               
 
                 elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
-                    landmark_id = 2
+                   self.landmark_id = 2
 
                 elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
-                    landmark_id = 3 
+                   self.landmark_id = 3 
 
 
                 current_time = datetime.utcnow().timestamp()
 
                 if self.last_landmark_timestamp is None or (current_time - self.last_landmark_timestamp) > 3.0:            # Update landmark tracking
-                    self.landmark_visits[landmark_id] += 1
-                    print(f'Observation of Landmark ID {landmark_id} (Visit #{self.landmark_visits[landmark_id]})')
+                    self.landmark_visits[self.landmark_id] += 1
+                    print(f'Observation of Landmark ID {self.landmark_id} (Visit #{self.landmark_visits[self.landmark_id]})')
                     
                 # Check for loop completion: transitioning from landmark 3 back to 0
-                if self.last_landmark_id == 3 and landmark_id == 0:
+                if self.last_landmark_id == 3 and self.landmark_id == 0:
                     print("LOOP COMPLETED: Detected transition from landmark 3 back to landmark 0")
                     self.completed_loop = True
-                
-                self.last_landmark_id = landmark_id
+
+                self.last_landmark_id = self.landmark_id
                 self.last_landmark_timestamp = current_time
                 print('infinite loop 7')
 
@@ -1008,10 +1041,10 @@ class LaptopPilot:
                 if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
                     not np.isnan(t_em[0]) and not np.isnan(t_em[1])):
                     
-                    self.graph.observation(t_em, sigma_xy, landmark_id, t_lm)   
+                    self.graph.observation(t_em, sigma_xy,self.landmark_id, t_lm)   
                     print('t_lm', t_lm) 
 
-                print('Observation of Landmark ID', landmark_id)
+                print('Observation of Landmark ID',self.landmark_id)
                 self.corner_detected = False
 
             else:
@@ -1042,6 +1075,8 @@ class LaptopPilot:
             graph_validate = copy.deepcopy(self.graph)
             graph_opt = graphslam_backend(graph_init)
 
+            print('after backend')
+
             self.graph_optimisation_solve(graph_opt)
 
 
@@ -1051,9 +1086,9 @@ class LaptopPilot:
             update_pose = np.array(update_pose).flatten()
 
 
-            self.evaluate_graphslam_performance(
-                self.state, update_pose, p_gt
-            )
+            # self.evaluate_graphslam_performance(
+            #     self.state, update_pose, p_gt
+            # )
 
 
             print('Unoptimised state:', self.state)
