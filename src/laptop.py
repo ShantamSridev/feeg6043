@@ -108,6 +108,9 @@ class LaptopPilot:
         self.northings_path = [0.0, 1.5, 1.5, 0.0, 0.0] # create a list of waypoints
         self.eastings_path = [0.0, -0.1, 1.4, 1.5, 0.0] # create a list of waypoints
         
+        #self.northings_path = [0.0, 1.5, 1.5] # create a list of waypoints
+        #self.eastings_path = [0.0, -0.1, 1.4] # create a list of waypoints
+        
         ########################### Storage Variables #########################
 
         # Estimated pose - sent to show_laptop
@@ -142,16 +145,15 @@ class LaptopPilot:
         self.corner_pose_eastings = None  
         
         #################### Corner Detection Model ###########################
-        
         self.gpc_corner = joblib.load('gpc_model.pkl')
         
         ############################ Noises ###################################
         
                         ###### lidar measurement noise ######
-        self.sigma_observe = Matrix(2, 2) 
+        self.sigma_observe = Matrix(2, 2)
         self.sigma_observe[0, 0] = 0.1**2  # 10% of range
         self.sigma_observe[0, 1] = 0
-        self.sigma_observe[1, 0] = np.deg2rad(0.1) ** 2  # 0.1 degree per metre range00
+        self.sigma_observe[1, 0] = np.deg2rad(5) ** 2  # 0.1 degree per metre range00
         self.sigma_observe[1, 1] = 0
         
 
@@ -181,7 +183,7 @@ class LaptopPilot:
         ################################ SLAM #################################
         
         self.graph = graphslam_frontend()
-        self.graph.anchor(self.sigma/100)
+        self.graph.anchor(self.sigma)
         
         self.p_gt_path = []
         
@@ -639,7 +641,7 @@ class LaptopPilot:
             self.state, self.sigma, self.dp, p_gt = rigid_body_kinematics(self.state[:3], u, dt=dt, sigma_motion=self.sigma_motion, sigma_xy=self.sigma)
             
             ######################## Lidar ####################################
-            
+            lidarflag = False
             if self.lidar_data is not None:
                 observation, _ = lidar_scan(self.state[:3], self.lidar_data, self.lidar, self.sigma_observe)
                 
@@ -658,10 +660,13 @@ class LaptopPilot:
                             
                             landmark_id, useful = self.which_corner(t_em[0], t_em[1])
                             if useful:
-                                self.graph.observation(t2v(H_eb.H@self.lidar.H_bl.H@v2t(t_lm)), self.sigma_observe, landmark_id, t_lm)# The sigma in this should be an error related to lidar position and distance
+                                if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
+                                    not np.isnan(t_em[0]) and not np.isnan(t_em[1])):
+                                    lidarflag = True
+                                    self.graph.observation(t_em, self.sigma_observe, landmark_id, t_lm)# The sigma in this should be an error related to lidar position and distance
             ########################### Control ###############################
-            
-            self.graph.motion(statecopy[:3], sigmacopy, self.dp, final=False)
+            if lidarflag is False:
+                self.graph.motion(copy.copy(self.state[:3]), copy.copy(self.sigma), self.dp, final=False)
             
             p = Vector(3)
             p[0] = self.measured_pose_northings_m  # Northings
