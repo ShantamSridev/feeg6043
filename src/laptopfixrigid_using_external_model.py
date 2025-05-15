@@ -242,7 +242,8 @@ class LaptopPilot:
         self.d_p_eb[1] = 0
         self.d_p_eb[2] = 0
 
-
+        self.prob_thresh = 0.75           # min classifier confidence
+        self.max_corner_dist = 0.85       # meters
 
 
 
@@ -840,12 +841,19 @@ class LaptopPilot:
                 )
                 if (observation is not None or not np.isnan(observation.data_filled[:, 0]).any()):
                     new_observation = self.GPC_input_output(observation, None)
-                    new_observation.label = self.gpc_corner.classes_[np.argmax(self.gpc_corner.predict_proba([new_observation.data_filled[:, 0]]))]
+                    feats = new_observation.data_filled[:, 0].reshape(1, -1)
+
+                    # get both label and probability
+                    probs = self.gpc_corner.predict_proba(feats)[0]
+                    max_p = np.max(probs)
+                    label = self.gpc_corner.classes_[np.argmax(probs)]
+                    new_observation.label = label
                     
-                    if new_observation.label == "corner":
-                        self.corner_detected = True
+                    if new_observation.label == "corner" and max_p >= self.prob_thresh:
+                        # print(f"Detected corner with probability {max_p:.2f} at {new_observation.data_filled[:, 0]}")
                         r, theta, idx = self.find_corner(new_observation)
-                        if r is not None:
+                        print('r, theta, idx', r, theta, idx)
+                        if r is not None and r <= self.max_corner_dist:
                             # Convert polar coordinates to cartesian in sensor frame
                             x_l, y_l = polar2cartesian(r, theta)
                             
@@ -856,6 +864,7 @@ class LaptopPilot:
                             self.corner_pose_northings = t_em[0]
                             self.corner_pose_eastings = t_em[1]
                             print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
+                            self.corner_detected = True
                             ts = datetime.utcnow().isoformat()
                             self._corner_writer.writerow([
                                 ts,
