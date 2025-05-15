@@ -12,6 +12,8 @@ from matplotlib.patches import Ellipse
 from matplotlib.patches import Circle
 from collections import Counter
 import copy
+import time
+
 plt.rcParams["figure.figsize"] = (5,3) #make plots look nice
 plt.rcParams["figure.dpi"] = 150 #make plots look nice
 
@@ -1513,6 +1515,8 @@ def show_observation(H_eb,t_bm,sigma,feature_label,ax, track_lines = True, compa
         
     sigma_em = Matrix(2,2)
     sigma_em = H_eb.R@sigma@H_eb.R.T
+    
+    #sigma_em = H_eb.H_R @ sigma @ H_eb.H_R.T #tried changing this
         
     x = (H_eb.H@t_bm)[0:2].tolist()
     s = sigma_em[0:2,0:2].tolist()
@@ -1630,7 +1634,7 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
             i = graph.edge[k][1]
             j = graph.edge[k][2]
 
-            X_igt = HomogeneousTransformation(p_gt_path[i][0:2],p_gt_path[i][2])
+            #X_igt = HomogeneousTransformation(p_gt_path[i][0:2],p_gt_path[i][2])
             X_i = HomogeneousTransformation(graph.pose[i][0:2],graph.pose[i][2])                            
 
             x = (graph.pose[i][0:2]).tolist()
@@ -1641,7 +1645,7 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
             ax.add_patch(e)            
 
 
-            X_jgt = HomogeneousTransformation(p_gt_path[j][0:2],p_gt_path[j][2])
+            #X_jgt = HomogeneousTransformation(p_gt_path[j][0:2],p_gt_path[j][2])
             X_j = HomogeneousTransformation(graph.pose[j][0:2],graph.pose[j][2])                    
 
             x = (graph.pose[j][0:2]).tolist()
@@ -1655,7 +1659,7 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
             cf._fixed_frame()
             cf._pose()        
 
-            cf=plot_2dframe(['pose_gt','B','B_'],[X_igt.H,X_jgt.H],True)
+            #cf=plot_2dframe(['pose_gt','B','B_'],[X_igt.H,X_jgt.H],True)
             cf._fixed_frame()
             cf._pose()        
 
@@ -1677,6 +1681,7 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
             unique_labels[label] = handle
 
     plt.legend(handles=unique_labels.values(), labels=unique_labels.keys(),bbox_to_anchor=(1.05, 1.0),loc="upper left")
+    plt.savefig(str(time.time())+'.png')
     plt.show()
 
 def show_scan(p_eb, lidar, observations, ax, show_lines = True):

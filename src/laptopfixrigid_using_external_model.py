@@ -19,12 +19,13 @@ from math_feeg6043 import Vector, Matrix, Identity, Inverse, eigsorted, gaussian
 from model_feeg6043 import ActuatorConfiguration, rigid_body_kinematics, RangeAngleKinematics, TrajectoryGenerate, feedback_control
 from model_feeg6043 import graphslam_frontend, lidar_scan, graphslam_backend 
 from classifier import GPC_input_output, load_model
-from plot_feeg6043 import plot_2dframe, sigma_contour, show_information
+from plot_feeg6043 import plot_2dframe, sigma_contour, show_information,  plot_graph
 import copy
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 import joblib
-
+import csv
+import os
 
 class LaptopPilot:
     """
@@ -249,6 +250,18 @@ class LaptopPilot:
         self.landmark_id = None
         self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
         self.last_landmark_timestamp = None
+
+        # ——— NEW: open CSV for corner detections ———
+        out_dir = os.path.join("logs", "corners")
+        os.makedirs(out_dir, exist_ok=True)
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        filename = f"corner_detections_{ts}.csv"
+        self._corner_log = open(filename, "w", newline="")
+        self._corner_writer = csv.writer(self._corner_log)
+        self._corner_writer.writerow([
+            "timestamp_iso8601", "northing_m", "easting_m", "landmark_id"
+        ])
+        print(f"Logging corners to {filename}")
 
         # Subscribers receive data from the robot
         self.true_wheel_speed_sub = Subscriber(
@@ -495,6 +508,7 @@ class LaptopPilot:
             self.lidar_sub.stop()
             self.groundtruth_sub.stop()
             self.true_wheel_speed_sub.stop()
+            self._corner_log.close()
 
 
 
@@ -842,6 +856,14 @@ class LaptopPilot:
                             self.corner_pose_northings = t_em[0]
                             self.corner_pose_eastings = t_em[1]
                             print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
+                            ts = datetime.utcnow().isoformat()
+                            self._corner_writer.writerow([
+                                ts,
+                                float(t_em[0]),
+                                float(t_em[1]),
+                                self.landmark_id
+                            ])
+                            self._corner_log.flush()
                             
                 #t_em, flag = self.run_classifier(p_eb)
     
@@ -886,7 +908,8 @@ class LaptopPilot:
                 # Check for loop completion: transitioning from landmark 3 back to 0
                 if self.last_landmark_id == 3 and self.landmark_id == 0:
                     print("LOOP COMPLETED: Detected transition from landmark 3 back to landmark 0")
-                    self.completed_loop = True
+                    # self.completed_loop = True
+                    self.loop_count += 1
 
                 self.last_landmark_id = self.landmark_id
                 self.last_landmark_timestamp = current_time
@@ -919,9 +942,10 @@ class LaptopPilot:
 
         # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
 
-        if self.completed_loop == True:
+        if self.loop_count >= 2:
+            print('infinite loop 8')
             self.stop_robot()
-            self.loop_count += 1
+            # self.loop_count += 1
             p_=copy.copy(self.state)
             sigma_=copy.copy(self.sigma)
 
