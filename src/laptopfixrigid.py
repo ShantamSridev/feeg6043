@@ -164,6 +164,8 @@ class LaptopPilot:
         self.state[self.G] = 0.0  # Heading angle
 
 
+
+
         # ============ LOGGING AND DEBUGGING ============
         self.aruco_count = 0  # Count of ArUco measurements received
         self.loop_count = 0   # Count of control loops executed
@@ -246,6 +248,14 @@ class LaptopPilot:
         self.landmark_id = None
         self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
         self.last_landmark_timestamp = None
+
+        self.landmark_locations = np.array([
+            [0.0, 0.0],
+            [0.0, 2.0],
+            [2.0, 2.0],
+            [2.0, 0.0]
+        ])
+
 
         # Subscribers receive data from the robot
         self.true_wheel_speed_sub = Subscriber(
@@ -342,6 +352,18 @@ class LaptopPilot:
             msg: Pose message with true robot position
         """
         self.datalog.log(msg, topic_name="/groundtruth")
+
+
+
+    def qualify_corner(self, detected_corner):
+        tolerance = 0.25
+        for landmark in self.landmark_locations:
+            distance = np.linalg.norm(detected_corner - landmark)
+
+            if distance < tolerance:
+                return True
+
+        return False
 
 
     def pose_parse(self, msg, aruco = False):
@@ -592,6 +614,7 @@ class LaptopPilot:
             self.lidar_sub.stop()
             self.groundtruth_sub.stop()
             self.true_wheel_speed_sub.stop()
+
 
 
     def graph_optimisation_solve(self, graph_opt):
@@ -1017,7 +1040,7 @@ class LaptopPilot:
                 # Check for loop completion: transitioning from landmark 3 back to 0
                 if self.last_landmark_id == 3 and self.landmark_id == 0:
                     print("LOOP COMPLETED: Detected transition from landmark 3 back to landmark 0")
-                    self.completed_loop = True
+                    self.loop_count += 1
 
                 self.last_landmark_id = self.landmark_id
                 self.last_landmark_timestamp = current_time
@@ -1050,9 +1073,8 @@ class LaptopPilot:
 
         # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
 
-        if self.completed_loop == True:
+        if self.loop_count > 1:
             self.stop_robot()
-            self.loop_count += 1
             p_=copy.copy(self.state)
             sigma_=copy.copy(self.sigma)
 
@@ -1063,6 +1085,7 @@ class LaptopPilot:
             
             ########### BACKEND ###############
             print('Before graph construction:')
+
             self.graph.construct_graph()
             graph_init = copy.deepcopy(self.graph)
             graph_validate = copy.deepcopy(self.graph)
@@ -1086,11 +1109,7 @@ class LaptopPilot:
 
             print('Unoptimised state:', self.state)
             print('Optimised Pose:', update_pose)
-            p_actual = Vector(3)
-            p_actual[0] = self.measured_pose_northings_m
-            p_actual[1] = self.measured_pose_eastings_m
-            p_actual[2] = self.measured_pose_yaw_rad 
-            print('Actual state:', p_actual)
+            print('Actual state:', p_gt)
 
 
             self.state[self.N] = update_pose[self.N]
@@ -1101,7 +1120,7 @@ class LaptopPilot:
 
             self.sigma = update_covariance
 
-            print('------------------------------------------- OPTIMISATION HAS FINISHED WOOHOOOO -- ---------------------------------------------')
+            print('After graph construction')
             self.completed_loop = False
 
 
