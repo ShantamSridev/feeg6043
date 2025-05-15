@@ -164,8 +164,6 @@ class LaptopPilot:
         self.state[self.G] = 0.0  # Heading angle
 
 
-
-
         # ============ LOGGING AND DEBUGGING ============
         self.aruco_count = 0  # Count of ArUco measurements received
         self.loop_count = 0   # Count of control loops executed
@@ -345,10 +343,6 @@ class LaptopPilot:
         """
         self.datalog.log(msg, topic_name="/groundtruth")
 
-
-
-
-    
 
     def pose_parse(self, msg, aruco = False):
         # parser converts pose data to a standard format for logging
@@ -598,7 +592,6 @@ class LaptopPilot:
             self.lidar_sub.stop()
             self.groundtruth_sub.stop()
             self.true_wheel_speed_sub.stop()
-
 
 
     def graph_optimisation_solve(self, graph_opt):
@@ -1093,7 +1086,11 @@ class LaptopPilot:
 
             print('Unoptimised state:', self.state)
             print('Optimised Pose:', update_pose)
-            print('Actual state:', p_gt)
+            p_actual = Vector(3)
+            p_actual[0] = self.measured_pose_northings_m
+            p_actual[1] = self.measured_pose_eastings_m
+            p_actual[2] = self.measured_pose_yaw_rad 
+            print('Actual state:', p_actual)
 
 
             self.state[self.N] = update_pose[self.N]
@@ -1104,7 +1101,7 @@ class LaptopPilot:
 
             self.sigma = update_covariance
 
-            print('After graph construction')
+            print('------------------------------------------- OPTIMISATION HAS FINISHED WOOHOOOO -- ---------------------------------------------')
             self.completed_loop = False
 
 
