@@ -760,7 +760,7 @@ class LaptopPilot:
         # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
 
-        # # WORKS 2
+        # # # WORKS 2 (BEST)
         self.sigma_motion=Matrix(3,2)
         self.sigma_motion[0,0]= 0.05**2 # impact of v linear velocity on x           
         self.sigma_motion[0,1]= np.deg2rad(0.7)**2 # impact of w angular velocity on x
@@ -779,6 +779,45 @@ class LaptopPilot:
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
 
+        #  3 DOESNT WORK
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.05**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.7)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.05**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.7)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.05**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.25**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(20)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+
+
+        # # # WORKS 2 (BEST)
+        self.sigma_motion=Matrix(3,2)
+        self.sigma_motion[0,0]= 0.05**2 # impact of v linear velocity on x           
+        self.sigma_motion[0,1]= np.deg2rad(0.7)**2 # impact of w angular velocity on x
+        self.sigma_motion[1,0]=0.05**2 # impact of v linear velocity on y
+        self.sigma_motion[1,1]=np.deg2rad(0.7)**2 # impact of w angular velocity on y
+        self.sigma_motion[2,0]=0.05**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # Observation model linear noise with range
+        self.sigma_observe = Matrix(2, 2)
+        self.sigma_observe[0, 0] = 0.22**2  # 20% of range
+        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[1, 0] = np.deg2rad(17)**2  # 10 degree per metre range
+        self.sigma_observe[1, 1] = 0
+        print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+        
         # anchor constraint, matrix must be invertable
 
         self.sigma = Matrix(3,3) 
@@ -921,7 +960,7 @@ class LaptopPilot:
 
             corner_confidence = self.gpc.predict_proba(input)[0][1]
 
-            if corner_confidence > 0.73:
+            if corner_confidence > 0.76:
                 scan = np.nan_to_num(scan, nan=0.0)
                 curvature = np.nan_to_num(calculate_curvature(scan, k=5), nan=0.0)
                 max_coord = np.array(scan[np.argmax(curvature), :2])
