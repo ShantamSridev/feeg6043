@@ -559,42 +559,112 @@ class LaptopPilot:
 
 
         # # SEVENTH RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.14**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.14**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.14)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.14**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.26**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(18)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # # # EIGHT RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.17**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.17**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.14)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.17**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.26**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(18)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+
+
+        # # # NINTH RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.17**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.17**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.14)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.17**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.28**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(20)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+        # # # TENTH RUN
         self.sigma_motion=Matrix(3,2)
-        self.sigma_motion[0,0]= 0.14**2 # impact of v linear velocity on x           
+        self.sigma_motion[0,0]= 0.17**2 # impact of v linear velocity on x           
         self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
-        self.sigma_motion[1,0]=0.14**2 # impact of v linear velocity on y
+        self.sigma_motion[1,0]=0.17**2 # impact of v linear velocity on y
         self.sigma_motion[1,1]=np.deg2rad(0.14)**2 # impact of w angular velocity on y
-        self.sigma_motion[2,0]=0.14**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,0]=0.17**2 # impact of v linear velocity on gamma
         self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
 
 
         # Observation model linear noise with range
         self.sigma_observe = Matrix(2, 2)
-        self.sigma_observe[0, 0] = 0.26**2  # 20% of range
+        self.sigma_observe[0, 0] = 0.25**2  # 20% of range
         self.sigma_observe[0, 1] = 0
-        self.sigma_observe[1, 0] = np.deg2rad(18)**2  # 10 degree per metre range
+        self.sigma_observe[1, 0] = np.deg2rad(20)**2  # 10 degree per metre range
         self.sigma_observe[1, 1] = 0
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
-
-        # # EIGHT RUN
+        # # # ELEVENTH RUN
         self.sigma_motion=Matrix(3,2)
-        self.sigma_motion[0,0]= 0.2**2 # impact of v linear velocity on x           
+        self.sigma_motion[0,0]= 0.17**2 # impact of v linear velocity on x           
         self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
-        self.sigma_motion[1,0]=0.2**2 # impact of v linear velocity on y
+        self.sigma_motion[1,0]=0.17**2 # impact of v linear velocity on y
         self.sigma_motion[1,1]=np.deg2rad(0.14)**2 # impact of w angular velocity on y
-        self.sigma_motion[2,0]=0.2**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,0]=0.17**2 # impact of v linear velocity on gamma
         self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
 
 
         # Observation model linear noise with range
         self.sigma_observe = Matrix(2, 2)
-        self.sigma_observe[0, 0] = 0.26**2  # 20% of range
+        self.sigma_observe[0, 0] = 0.25**2  # 20% of range
         self.sigma_observe[0, 1] = 0
-        self.sigma_observe[1, 0] = np.deg2rad(18)**2  # 10 degree per metre range
+        self.sigma_observe[1, 0] = np.deg2rad(15)**2  # 10 degree per metre range
         self.sigma_observe[1, 1] = 0
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
+
+       #THREE SCENARIOS
+       # HIGHLY INNACURATE MEASUREMENT
+       # STANDARD ACCURATE MEASUREMENT
+       # VERY ACCURATE MEASUREMENT 
+
+
+       #THREE SCENARIOS
+       # HIGHLY ACURATE MOTION MODEL
+       # STANDARD ACCURATE MOTION MODEL
+       # LOW ACCURACY MOTION MODEL
 
         # self.sigma_motion=Matrix(3,2)
         # self.sigma_motion[0,0]= 0.05**2 # impact of v linear velocity on x           #Task
