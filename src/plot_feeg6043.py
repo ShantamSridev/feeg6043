@@ -1609,77 +1609,119 @@ def plot_gp_functions(x,fx_samples, mu, std, xlim = [0,1],ylim = [-1,1],n_show =
     plt.show()
 
 def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
-    
-    graph=copy.copy(graph_object)
-    #establish the map
+    print('Plotting graph')
+    graph = copy.copy(graph_object)
+    # establish the map
     fig = plt.figure()
     ax = plt.subplot(111, aspect='equal')
-
+    
+    # Calculate sampling interval to show approximately 10 poses for ground truth
+    total_gt_poses = len(p_gt_path)
+    if total_gt_poses <= 10:
+        # If we have 10 or fewer poses, just use all of them
+        sampled_gt_path = p_gt_path
+    else:
+        # Calculate interval to get approximately 10 poses
+        sample_interval_gt = max(1, (total_gt_poses - 1) // (10 - 1))
+        print(f"Total ground truth poses: {total_gt_poses}, Sample interval: {sample_interval_gt}")
+        
+        # Create a sampled version of the ground truth path
+        sampled_gt_path = []
+        for i in range(0, total_gt_poses, sample_interval_gt):
+            sampled_gt_path.append(p_gt_path[i])
+        
+        # Make sure to include the last pose if it's not already included
+        if not np.array_equal(sampled_gt_path[-1], p_gt_path[-1]):
+            sampled_gt_path.append(p_gt_path[-1])
+    
+    print(f"Original GT path length: {total_gt_poses}, Sampled GT path length: {len(sampled_gt_path)}")
+    
+    # Calculate sampling interval for motion edges and poses
+    total_edges = len([edge for edge in graph.edge if edge[0] == 'motion'])
+    if total_edges <= 10:
+        sample_interval_motion = 1  # Show all if 10 or fewer
+    else:
+        sample_interval_motion = max(1, total_edges // 10)
+    print(f"Total motion edges: {total_edges}, Motion sample interval: {sample_interval_motion}")
+    
+    # Plot landmarks
+    print('Plotting landmarks')
     for i in range(len(m_gt)):        
-        cf=plot_2dframe(['map','e',m_labels[i]],[H_em.H,v2t(m_gt[i])],False)
+        cf = plot_2dframe(['map','e',m_labels[i]], [H_em.H, v2t(m_gt[i])], False)
         cf._point()
+    
+    # Plot edges with sampling
+    print('Plotting edges')
+    motion_count = 0
     
     for k in range(len(graph.edge)):  
         if graph.edge[k][0] == 'landmark':
             i = graph.edge[k][1]
             l = graph.edge[k][2]
             z_il = graph.edge[k][3]
-
-            X_igt = HomogeneousTransformation(p_gt_path[i][0:2],p_gt_path[i][2])
-            X_i = HomogeneousTransformation(graph.pose[i][0:2],graph.pose[i][2])  
-            show_observation(X_i,z_il,(graph.landmark_covariance[l]),'m',ax)           
-
-        if graph.edge[k][0] == 'motion':
-
-            i = graph.edge[k][1]
-            j = graph.edge[k][2]
-
-            #X_igt = HomogeneousTransformation(p_gt_path[i][0:2],p_gt_path[i][2])
-            X_i = HomogeneousTransformation(graph.pose[i][0:2],graph.pose[i][2])                            
-
-            x = (graph.pose[i][0:2]).tolist()
-            s = (graph.pose_covariance[i])[0:2,0:2].tolist()
-
-            e=sigma_contour([x[1],x[0]],[[s[1][1],s[1][0]],[s[0][1],s[0][0]]],'b')
-            e.set_facecolor('none')
-            ax.add_patch(e)            
-
-
-            #X_jgt = HomogeneousTransformation(p_gt_path[j][0:2],p_gt_path[j][2])
-            X_j = HomogeneousTransformation(graph.pose[j][0:2],graph.pose[j][2])                    
-
-            x = (graph.pose[j][0:2]).tolist()
-            s = (graph.pose_covariance[j])[0:2,0:2].tolist()
-
-            e=sigma_contour([x[1],x[0]],[[s[1][1],s[1][0]],[s[0][1],s[0][0]]],'b')
-            e.set_facecolor('none')
-            ax.add_patch(e)            
-
-            cf=plot_2dframe(['pose','b','b_'],[X_i.H,X_j.H],True)
-            cf._fixed_frame()
-            cf._pose()        
-
-            #cf=plot_2dframe(['pose_gt','B','B_'],[X_igt.H,X_jgt.H],True)
-            cf._fixed_frame()
-            cf._pose()        
-
-
+            
+            # Check if index is valid before accessing
+            if i < len(p_gt_path):
+                X_igt = HomogeneousTransformation(p_gt_path[i][0:2], p_gt_path[i][2])
+                X_i = HomogeneousTransformation(graph.pose[i][0:2], graph.pose[i][2])  
+                show_observation(X_i, z_il, (graph.landmark_covariance[l]), 'm', ax)          
+        
+        elif graph.edge[k][0] == 'motion':
+            motion_count += 1
+            
+            # Only process a subset of motion edges to reduce clutter
+            if motion_count % sample_interval_motion == 0:
+                i = graph.edge[k][1]
+                j = graph.edge[k][2]
+                
+                # Check if indices are valid
+                if i < len(graph.pose) and j < len(graph.pose):
+                    # Plot the current pose covariance ellipse
+                    X_i = HomogeneousTransformation(graph.pose[i][0:2], graph.pose[i][2])                            
+                    x = (graph.pose[i][0:2]).tolist()
+                    s = (graph.pose_covariance[i])[0:2,0:2].tolist()
+                    e = sigma_contour([x[1],x[0]], [[s[1][1],s[1][0]], [s[0][1],s[0][0]]], 'b')
+                    e.set_facecolor('none')
+                    ax.add_patch(e)            
+                    
+                    # Plot the next pose covariance ellipse
+                    X_j = HomogeneousTransformation(graph.pose[j][0:2], graph.pose[j][2])                    
+                    x = (graph.pose[j][0:2]).tolist()
+                    s = (graph.pose_covariance[j])[0:2,0:2].tolist()
+                    e = sigma_contour([x[1],x[0]], [[s[1][1],s[1][0]], [s[0][1],s[0][0]]], 'b')
+                    e.set_facecolor('none')
+                    ax.add_patch(e)            
+                    
+                    # Draw line between poses
+                    cf = plot_2dframe(['pose','b','b_'], [X_i.H, X_j.H], True)
+                    cf._fixed_frame()
+                    cf._pose()        
+                    
+                    cf._fixed_frame()
+                    cf._pose()
+    
+    # Plot the sampled ground truth path
+    print('Plotting ground truth path')
+    for i in range(len(sampled_gt_path) - 1):
+        X_i = HomogeneousTransformation(sampled_gt_path[i][0:2], sampled_gt_path[i][2])
+        X_j = HomogeneousTransformation(sampled_gt_path[i+1][0:2], sampled_gt_path[i+1][2])
+        
+        cf = plot_2dframe(['gt_path', 'g', 'g_'], [X_i.H, X_j.H], True)
+        cf._fixed_frame()
+        cf._pose()
+        
     # make plots
     plt.axis('equal')
     plt.ylabel('Primary')
     plt.xlabel('Secondary')
-
     # Get handles and labels to remove duplicates in the legend
     handles, labels = plt.gca().get_legend_handles_labels()
-
     # Create a dictionary to track unique labels
     unique_labels = {}
-
     # Remove duplicates
     for handle, label in zip(handles, labels):
         if label not in unique_labels:
             unique_labels[label] = handle
-
     plt.legend(handles=unique_labels.values(), labels=unique_labels.keys(),bbox_to_anchor=(1.05, 1.0),loc="upper left")
     plt.savefig(str(time.time())+'.png')
     plt.show()

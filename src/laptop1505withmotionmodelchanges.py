@@ -71,8 +71,8 @@ class LaptopPilot:
 
         # ============ ROBOT PHYSICAL PARAMETERS ============
         # These define the physical dimensions of the robot
-        wheel_distance =  0.085  # Distance between left and right wheels in meters
-        wheel_diameter = 0.072  # Diameter of each wheel in meters
+        wheel_distance =  0.163/2  # Distance between left and right wheels in meters
+        wheel_diameter = 0.065  # Diameter of each wheel in meters
 
         # Create differential drive configuration object
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter)
@@ -80,10 +80,10 @@ class LaptopPilot:
 
         # ============ TRAJECTORY PARAMETERS ============
         # These control how the robot moves along its path
-        self.velocity = 0.07              # Desired forward velocity in m/s
+        self.velocity = 0.1              # Desired forward velocity in m/s
         self.acceleration = self.velocity/3 # How quickly to reach desired velocity
         self.turning_radius = 0.2         # Minimum turning radius in meters
-        self.acceptance_radius = 0.15 
+        self.acceptance_radius = 0.2 
 
         # ============ CONTROL PARAMETERS ============
         # These values control how aggressively the robot corrects errors
@@ -94,8 +94,8 @@ class LaptopPilot:
         self.k_s = 1/self.tau_s  # Along-track gain (how strongly to correct forward/backward error)
 
         # Velocity and turning rate limits for safety
-        self.v_max = 0.07         # Maximum forward/backward speed in m/s
-        self.w_max = np.deg2rad(15)  # Maximum turning rate in rad/s (15 degrees/s)
+        self.v_max = 0.15        # Maximum forward/backward speed in m/s
+        self.w_max = np.deg2rad(30)  # Maximum turning rate in rad/s (15 degrees/s)
 
         # Initialization flags
         self.initialise_control = True  # Will be set to False after first control update
@@ -105,8 +105,8 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path_single = [0.0, 1.0, 1.0, 0.0]
-        self.eastings_path_single = [0.0, 0.0, 1.0, 1.0]
+        self.northings_path_single = [0.2, 1.2, 1.2, 0.2]
+        self.eastings_path_single = [0.0, 0.0, 1.1, 1.1]
         self.northings_path = self.northings_path_single + self.northings_path_single + [0.0]
         self.eastings_path = self.eastings_path_single + self.eastings_path_single + [0.0]  
         self.relative_path = True  # If True, path is relative to robot's starting position
@@ -165,7 +165,7 @@ class LaptopPilot:
         self.state[self.E] = 0.0
         self.state[self.G] = 0.0  # Heading angle
 
-
+        self.p_gt_path = []  # Store ground truth path for plotting
 
 
         # ============ LOGGING AND DEBUGGING ============
@@ -187,20 +187,42 @@ class LaptopPilot:
          # ============ SLAM SETUP ============
 
         #Motion model linear noise due to v and w
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           #Task
+        # self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
+
+
+
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.5**2 # impact of v linear velocity on x           #Task
+        # self.sigma_motion[0,1]= np.deg2rad(5)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.5**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(1)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.5**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(1)**2 # impact of w angular velocity on gamma
+
+
+
         self.sigma_motion=Matrix(3,2)
-        self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           #Task
+        self.sigma_motion[0,0]= 0.15**2 # impact of v linear velocity on x           #Task
         self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
-        self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+        self.sigma_motion[1,0]=0.15**2 # impact of v linear velocity on y
         self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
-        self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,0]=0.15**2 # impact of v linear velocity on gamma
         self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
+
+
         print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
         # Observation model linear noise with range
         self.sigma_observe = Matrix(2, 2)
-        self.sigma_observe[0, 0] = 0.1**2  # 10% of range
+        self.sigma_observe[0, 0] = 0.25**2  # 10% of range
         self.sigma_observe[0, 1] = 0
-        self.sigma_observe[1, 0] = np.deg2rad(5)**2  # 5 degree per metre range
+        self.sigma_observe[1, 0] = np.deg2rad(30)**2  # 5 degree per metre range
         self.sigma_observe[1, 1] = 0
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
@@ -231,20 +253,20 @@ class LaptopPilot:
         self.d_p_eb[1] = 0
         self.d_p_eb[2] = 0
 
-        self.prob_thresh = 0.85           # min classifier confidence
+        self.prob_thresh = 0.78           # min classifier confidence
         self.max_corner_dist = 2       # meters
 
 
 
-        self.last_landmark_id = None  # Track the last landmark we visited
-        self.landmark_id = None
+        self.last_landmark_id = 0  # Track the last landmark we visited
+        self.landmark_id = 0
         self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
         self.last_landmark_timestamp = None
         self.landmark_locations = np.array([
-            [0.0, 0.0],
-            [0.0, 2.0],
-            [2.0, 2.0],
-            [2.0, 0.0]
+            [0.0, 0.0],  # Landmark 0
+            [0.0, 2.0],  # Landmark 1
+            [2.0, 2.0],  # Landmark 2
+            [2.0, 0.0]   # Landmark 3
         ])
         self.observation_counter = 0
         self.optimised = False
@@ -493,7 +515,7 @@ class LaptopPilot:
 
                 # Sleep to maintain 10 Hz rate
                 r.sleep()
-
+    
         except KeyboardInterrupt:
             print("KeyboardInterrupt received, stopping…")
         except Exception as e:
@@ -515,7 +537,7 @@ class LaptopPilot:
         initial_residual=100
         residual_threshold=1E-12
         delta_threshold=1/1000
-        lim_iterations=20
+        lim_iterations=40
         n_iterations = 0
         delta_residual = initial_residual
         residual = initial_residual
@@ -592,22 +614,42 @@ class LaptopPilot:
         return position_error
 
     def calculate_position_error(self, pose1, pose2):
-        """Calculate Euclidean distance between position components of poses"""
         return np.linalg.norm(pose1[:3, 3] - pose2[:3, 3])
 
+    def get_closest_landmark_id(self, corner_position):
+        corner_x = float(corner_position[0])
+        corner_y = float(corner_position[1])
+        
+        distances = [
+            np.sqrt((corner_x - x)**2 + (corner_y - y)**2) 
+            for x, y in self.landmark_locations
+        ]
+        
+        closest_id = np.argmin(distances)
+        min_distance = distances[closest_id]
+        
+        # Use distance threshold to validate landmarks
+        distance_threshold = 0.5 
+        valid = min_distance < distance_threshold
+        
+   
+        # if self.observation_counter == 0:
+        #     expected_id = closest_id
+        # elif closest_id == self.last_landmark_id:
+        #     expected_id = closest_id
+        # elif self.last_landmark_id == 3:
+        #     expected_id = 0
+        # else:
+        #     expected_id = self.last_landmark_id + 1
+        
+        print('Closest landmark ID:', closest_id)
+        # print('Last landmark ID:', self.last_landmark_id)
+        # print('Distance to closest landmark:', min_distance)
+        # print('Expected landmark ID:', expected_id)
+        # print('Valid:', valid)
+        valid = True
+        return valid, closest_id
 
-    
-    def qualify_corner(self, detected_corner):
-        tolerance = 5
-        print("DETECTED CORNER", detected_corner)
-        for landmark in self.landmark_locations:
-            distance = np.linalg.norm(detected_corner - landmark)
-
-            if distance < tolerance:
-                return True
-
-        return False
-    
     def infinite_loop(self):
         """
         Main control loop that runs continuously.
@@ -639,7 +681,7 @@ class LaptopPilot:
             p_gt[0] = self.measured_pose_northings_m
             p_gt[1] = self.measured_pose_eastings_m
             p_gt[2] = self.measured_pose_yaw_rad 
-
+            self.p_gt_path.append(p_gt)
             # Log the measurement
             self.datalog.log(msg, topic_name="/aruco")
             self.aruco_count += 1
@@ -700,7 +742,7 @@ class LaptopPilot:
             p_gt[0] = self.measured_pose_northings_m
             p_gt[1] = self.measured_pose_eastings_m
             p_gt[2] = self.measured_pose_yaw_rad 
-
+            self.p_gt_path.append(p_gt)
 
             # Calculate time step
             t_now = datetime.utcnow().timestamp()
@@ -858,23 +900,21 @@ class LaptopPilot:
                             x_l, y_l = polar2cartesian(r, theta)
                             H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
                             t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
-                            correctly_located_corner = self.qualify_corner(t_em)
                         
-                            if correctly_located_corner:
-                                self.corner_detected = True
-                                self.corner_pose_northings = t_em[0]
-                                self.corner_pose_eastings = t_em[1]
+                            self.corner_detected = True
+                            self.corner_pose_northings = t_em[0]
+                            self.corner_pose_eastings = t_em[1]
 
-                                print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
-                                
-                                ts = datetime.utcnow().isoformat()
-                                self._corner_writer.writerow([
-                                    ts,
-                                    float(t_em[0]),
-                                    float(t_em[1]),
-                                    self.landmark_id
-                                ])
-                                self._corner_log.flush()
+                            print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
+                            
+                            ts = datetime.utcnow().isoformat()
+                            self._corner_writer.writerow([
+                                ts,
+                                float(t_em[0]),
+                                float(t_em[1]),
+                                self.landmark_id
+                            ])
+                            self._corner_log.flush()
                             
                 #t_em, flag = self.run_classifier(p_eb)
     
@@ -894,20 +934,14 @@ class LaptopPilot:
                 if hasattr(t_lm, 'shape') and t_lm.shape == (2,):
                     t_lm = t_lm.reshape(2, 1)
 
-                print('t_em', t_em)
-                print('t_lm', t_lm)
+                # print('t_em', t_em)
+                # print('t_lm', t_lm)
                 
-                if (p_eb[0] < 1 and p_eb[1] < 1):
-                   self.landmark_id = 0
 
-                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 0 and p_eb[1] < 1 ):
-                   self.landmark_id = 1               
+                valid, id = self.get_closest_landmark_id(t_em)
+                if valid:
+                    self.landmark_id = id
 
-                elif (p_eb[0] > 1 and p_eb[0] < 2 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
-                   self.landmark_id = 2
-
-                elif (p_eb[0] > 0 and p_eb[0] < 1 ) and  (p_eb[1] > 1 and p_eb[1] < 2 ):
-                   self.landmark_id = 3 
 
 
                 current_time = datetime.utcnow().timestamp()
@@ -917,30 +951,20 @@ class LaptopPilot:
                 #     print(f'Observation of Landmark ID {self.landmark_id} (Visit #{self.landmark_visits[self.landmark_id]})')
                     
                 # Check for loop completion: transitioning from landmark 3 back to 0
-                if self.last_landmark_id == 3 and self.landmark_id == 0:
-                    print("LOOP COMPLETED: Detected transition from landmark 3 back to landmark 0")
-                    # self.completed_loop = True
+                if self.last_landmark_id == 1 and self.landmark_id == 0:
                     self.loop_count += 1
+                    print("LOOP", self.loop_count ,"COMPLETED: Detected transition from landmark 3 back to landmark 0")
 
-
-
-
-                    # CORNER DETECTED at: [2.124, 0.296]
-                    # CORNER DETECTED at: [1.818, 1.327]
-                    # CORNER DETECTED at: [0.672, 2.072]
-                    # CORNER DETECTED at: [-0.445, 0.851]
-
-                # adds to the graph as a landmark observation together with its ID
 
                 if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
-                    not np.isnan(t_em[0]) and not np.isnan(t_em[1])):
-                    # print("NaN check passed")
-                    if self.last_landmark_timestamp is None or (current_time - self.last_landmark_timestamp) > 3.0:    
-                        self.graph.observation(t_em, sigma_xy,self.landmark_id, t_lm)   
-                        print('t_lm', t_lm) 
-                        print( '(',self.observation_counter,')', 'Observation of Landmark ID',self.landmark_id)
-                        self.last_landmark_id = self.landmark_id
-                        self.last_landmark_timestamp = current_time
+                    not np.isnan(t_em[0]) and not np.isnan(t_em[1]) and valid == True):
+
+                    self.graph.observation(t_em, sigma_xy,self.landmark_id, t_lm)   
+                    print('t_lm', t_lm) 
+                    print( '(',self.observation_counter,')', 'Observation of Landmark ID',self.landmark_id)
+                    self.last_landmark_id = self.landmark_id
+                    self.last_landmark_timestamp = current_time
+
                 self.corner_detected = False
 
             else:
@@ -978,6 +1002,36 @@ class LaptopPilot:
 
             optimised_graph_pose = graph_opt.reduce2pose()
 
+
+
+            em = Vector(2)
+            H_em = HomogeneousTransformation(em, 0)
+            
+            m_e0 = Vector(2)
+            m_e0[0] = 0
+            m_e0[1] = 0
+            
+            m_e1 = Vector(2)
+            m_e1[0] = 2
+            m_e1[1] = 0
+            
+            m_e2 = Vector(2)
+            m_e2[0] = 2
+            m_e2[1] = 2
+            
+            m_e3 = Vector(2)
+            m_e3[0] = 0
+            m_e3[1] = 2
+
+
+            
+
+            map_ground_truth = [m_e0, m_e1, m_e2, m_e3]
+            map_labels = ['c0', 'c1', 'c2','c3']
+            plot_graph(graph_init, self.p_gt_path, H_em, map_ground_truth, map_labels)
+            plot_graph(graph_opt, self.p_gt_path, H_em, map_ground_truth, map_labels)
+            plot_graph(optimised_graph_pose, self.p_gt_path, H_em, map_ground_truth, map_labels)
+
             update_pose = next((p for p in reversed(optimised_graph_pose.pose) if np.any(p != 0)), None)
             update_pose = np.array(update_pose).flatten()
 
@@ -997,6 +1051,11 @@ class LaptopPilot:
             print('After graph construction')
             self.completed_loop = False
             self.optimised = True
+
+
+
+            
+            self.graph.construct_graph(visualise_flag=True)
 
 
 

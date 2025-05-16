@@ -1058,25 +1058,25 @@ class TrajectoryGenerate():
             # if within acceptance radius, follow trajectory to next waypoint
             if distance_to_wp <= accept_radius:                
            
-                print('************************************************************')
-                print('Reached waypoint ',self.wp_id,' at t=',t_robot,'s') 
-                print('Delay',delay,'s, Scheduled arrival', scheduled_time,'s, Latest allowable arrival', latest_allowable,'s')        
-                print('************************************************************')
+                # print('************************************************************')
+                # print('Reached waypoint ',self.wp_id,' at t=',t_robot,'s') 
+                # print('Delay',delay,'s, Scheduled arrival', scheduled_time,'s, Latest allowable arrival', latest_allowable,'s')        
+                # print('************************************************************')
                 wp_progress_flag = True
 
             elif t_robot > latest_allowable:            
-                print('************************************************************')
-                print('Failed to reach waypoint ',self.wp_id) 
-                print('Delay',delay,'s, Scheduled arrival', scheduled_time,'s')
-                print('Time ',t_robot,' s exceeds Latest allowable arrival', latest_allowable,'s')
-                print('************************************************************')
+                # print('************************************************************')
+                # print('Failed to reach waypoint ',self.wp_id) 
+                # print('Delay',delay,'s, Scheduled arrival', scheduled_time,'s')
+                # print('Time ',t_robot,' s exceeds Latest allowable arrival', latest_allowable,'s')
+                # print('************************************************************')
                 wp_progress_flag = True
 
             if wp_progress_flag == True:
 
                 if self.wp_id <= len(Tp)-2: 
                     self.wp_id += 1             
-                    print('Go to next waypoint ',self.wp_id,' at ',P[self.wp_id])
+                    # print('Go to next waypoint ',self.wp_id,' at ',P[self.wp_id])
 
                     # add any delay to all future waypoints
                     if delay > 0:
