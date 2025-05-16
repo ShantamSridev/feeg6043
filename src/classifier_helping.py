@@ -75,7 +75,7 @@ def is_corner(lidar_scan, threshold):
         return np.array(max_coord)
     else:
         return None
-
+    
 class LaptopPilot:
     """
     This class controls a differential drive robot using visual feedback from ArUco markers
@@ -120,8 +120,8 @@ class LaptopPilot:
 
         # ============ ROBOT PHYSICAL PARAMETERS ============
         # These define the physical dimensions of the robot
-        wheel_distance =  0.163/2  # Distance between left and right wheels in meters
-        wheel_diameter = 0.065  # Diameter of each wheel in meters
+        wheel_distance =  0.165/2  # Distance between left and right wheels in meters
+        wheel_diameter = 0.07  # Diameter of each wheel in meters
 
         # Create differential drive configuration object
         self.ddrive = ActuatorConfiguration(wheel_distance, wheel_diameter)
@@ -129,10 +129,10 @@ class LaptopPilot:
 
         # ============ TRAJECTORY PARAMETERS ============
         # These control how the robot moves along its path
-        self.velocity = 0.07              # Desired forward velocity in m/s
+        self.velocity = 0.05              # Desired forward velocity in m/s
         self.acceleration = self.velocity/3 # How quickly to reach desired velocity
         self.turning_radius = 0.2         # Minimum turning radius in meters
-        self.acceptance_radius = 0.2 
+
 
         # ============ CONTROL PARAMETERS ============
         # These values control how aggressively the robot corrects errors
@@ -143,8 +143,8 @@ class LaptopPilot:
         self.k_s = 1/self.tau_s  # Along-track gain (how strongly to correct forward/backward error)
 
         # Velocity and turning rate limits for safety
-        self.v_max = 0.1        # Maximum forward/backward speed in m/s
-        self.w_max = np.deg2rad(30)  # Maximum turning rate in rad/s (15 degrees/s)
+        self.v_max = 0.08         # Maximum forward/backward speed in m/s
+        self.w_max = np.deg2rad(15)  # Maximum turning rate in rad/s (15 degrees/s)
 
         # Initialization flags
         self.initialise_control = True  # Will be set to False after first control update
@@ -154,8 +154,8 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path_single = [0.2, 1.2, 1.2, 0.2]
-        self.eastings_path_single = [0.0, 0.0, 1.1, 1.1]
+        self.northings_path_single = [0.0, 1.0, 1.0, 0.0]
+        self.eastings_path_single = [0.0, 0.0, 1.0, 1.0]
         self.northings_path = self.northings_path_single + self.northings_path_single + [0.0]
         self.eastings_path = self.eastings_path_single + self.eastings_path_single + [0.0]  
         self.relative_path = True  # If True, path is relative to robot's starting position
@@ -184,7 +184,7 @@ class LaptopPilot:
         # Actual wheel speeds measured by encoders
         self.measured_wheelrate_right = None
         self.measured_wheelrate_left = None
-
+        
 
         # ============ LIDAR SENSOR SETUP ============
         # LIDAR measures distances to obstacles around the robot
@@ -198,10 +198,12 @@ class LaptopPilot:
         t_bl[0] = self.lidar_xb
         t_bl[1] = self.lidar_yb
         self.H_bl = HomogeneousTransformation(t_bl,0)   # Task
-        self.gpc = joblib.load('src/gpclass.joblib')
+        self.lidar = RangeAngleKinematics(self.lidar_xb, self.lidar_yb)
+        self.gpc = joblib.load('gpclass.joblib')
         self.pose_prev = Vector(3)
         self.observation_dist = 0.4
         self.n_observations = 2
+        self.p_gt_path = []
         self.calibrating_graph = True
         self.constructed_graph = True
         self.update_landmark = False
@@ -213,7 +215,6 @@ class LaptopPilot:
         self.visits = [0,0,0,0]
         self.last_landmark = -1
         self.planned_landmarks = [[0,0],[0,2],[2,2],[2,0]]
-        self.lidar = RangeAngleKinematics(self.lidar_xb, self.lidar_yb)
 
 
         # ============ STATE VECTOR FOR SIMPLE TRACKING ============
@@ -233,7 +234,7 @@ class LaptopPilot:
         self.state[self.E] = 0.0
         self.state[self.G] = 0.0  # Heading angle
 
-        self.p_gt_path = []  # Store ground truth path for plotting
+
 
 
         # ============ LOGGING AND DEBUGGING ============
@@ -256,57 +257,17 @@ class LaptopPilot:
 
         #Motion model linear noise due to v and w
         self.sigma_motion=Matrix(3,2)
-        # self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           #Task
-        # self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
-        # self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
-        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
-        # self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
-        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
-
-
-
-        # self.sigma_motion=Matrix(3,2)
-        # self.sigma_motion[0,0]= 0.5**2 # impact of v linear velocity on x           #Task
-        # self.sigma_motion[0,1]= np.deg2rad(5)**2 # impact of w angular velocity on x
-        # self.sigma_motion[1,0]=0.5**2 # impact of v linear velocity on y
-        # self.sigma_motion[1,1]=np.deg2rad(1)**2 # impact of w angular velocity on y
-        # self.sigma_motion[2,0]=0.5**2 # impact of v linear velocity on gamma
-        # self.sigma_motion[2,1]=np.deg2rad(1)**2 # impact of w angular velocity on gamma
-
-
-
-        # self.sigma_motion=Matrix(3,2)
-        # self.sigma_motion[0,0]= 0.25**2 # impact of v linear velocity on x           #Task
-        # self.sigma_motion[0,1]= np.deg2rad(2)**2 # impact of w angular velocity on x
-        # self.sigma_motion[1,0]=0.25**2 # impact of v linear velocity on y
-        # self.sigma_motion[1,1]=np.deg2rad(0.5)**2 # impact of w angular velocity on y
-        # self.sigma_motion[2,0]=0.25**2 # impact of v linear velocity on gamma
-        # self.sigma_motion[2,1]=np.deg2rad(0.5)**2 # impact of w angular velocity on gamma
-
-
-
-        self.sigma_motion=Matrix(3,2)
-        self.sigma_motion[0,0]= 0.12**2 # impact of v linear velocity on x           #Task
+        self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           #Task
         self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
-        self.sigma_motion[1,0]=0.12**2 # impact of v linear velocity on y
-        self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
-        self.sigma_motion[2,0]=0.12**2 # impact of v linear velocity on gamma
-        self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
-
-
-        # self.sigma_motion=Matrix(3,2)
-        # self.sigma_motion[0,0]=0.1**2 # impact of v linear velocity on x           #Task
-        # self.sigma_motion[0,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on x
-        # self.sigma_motion[1,0]=0.3**2 # impact of v linear velocity on y
-        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
-        # self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
-        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
-
+        self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+        self.sigma_motion[1,1]=np.deg2rad(1)**2 # impact of w angular velocity on y
+        self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,1]=np.deg2rad(1)**2 # impact of w angular velocity on gamma
         print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
         # Observation model linear noise with range
         self.sigma_observe = Matrix(2, 2)
-        self.sigma_observe[0, 0] = 0.2**2  # 10% of range
+        self.sigma_observe[0, 0] = 0.1**2  # 10% of range
         self.sigma_observe[0, 1] = 0
         self.sigma_observe[1, 0] = np.deg2rad(5)**2  # 5 degree per metre range
         self.sigma_observe[1, 1] = 0
@@ -326,7 +287,6 @@ class LaptopPilot:
         self.sigma[2,1]=0.01
         self.sigma[2,2]=0.1
 
-
         self.corner_pose_northings = None
         self.corner_pose_eastings = None
 
@@ -343,23 +303,23 @@ class LaptopPilot:
         self.d_p_eb[1] = 0
         self.d_p_eb[2] = 0
 
-        self.prob_thresh = 0.70           # min classifier confidence
+        self.prob_thresh = 0.75           # min classifier confidence
         self.max_corner_dist = 2       # meters
 
 
 
-        self.last_landmark_id = 0  # Track the last landmark we visited
-        self.landmark_id = 0
+        self.last_landmark_id = None  # Track the last landmark we visited
+        self.landmark_id = None
         self.landmark_visits = {0: 0, 1: 0, 2: 0, 3: 0}  # Count visits to each landmark
         self.last_landmark_timestamp = None
         self.landmark_locations = np.array([
-            [0.0, 0.0],  # Landmark 0
-            [0.0, 2.0],  # Landmark 1
-            [2.0, 2.0],  # Landmark 2
-            [2.0, 0.0]   # Landmark 3
+            [0.0, 0.0],
+            [0.0, 2.0],
+            [2.0, 2.0],
+            [2.0, 0.0]
         ])
         self.observation_counter = 0
-        self.optimised = False
+
 
         # ——— NEW: open CSV for corner detections ———
         out_dir = os.path.join("logs", "corners")
@@ -455,7 +415,7 @@ class LaptopPilot:
 
             corner_confidence = self.gpc.predict_proba(input)[0][1]
 
-            if corner_confidence > 0.75:
+            if corner_confidence > 0.65:
                 scan = np.nan_to_num(scan, nan=0.0)
                 curvature = np.nan_to_num(calculate_curvature(scan, k=5), nan=0.0)
                 max_coord = np.array(scan[np.argmax(curvature), :2])
@@ -560,10 +520,10 @@ class LaptopPilot:
 
         # Set trajectory parameters
         self.path.path_to_trajectory(self.velocity, self.acceleration)
-        self.path.turning_arcs(self.acceptance_radius)
+        self.path.turning_arcs(self.turning_radius)
         self.path.wp_id = 0  # Start at first waypoint
 
-    def find_corner(self, corner, threshold=0.0005):
+    def find_corner(self, corner, threshold=0.0001):
         # identify the reference coordinate as the inflection point
 
         # Step 1: Compute slope
@@ -646,7 +606,7 @@ class LaptopPilot:
 
                 # Sleep to maintain 10 Hz rate
                 r.sleep()
-    
+
         except KeyboardInterrupt:
             print("KeyboardInterrupt received, stopping…")
         except Exception as e:
@@ -668,7 +628,7 @@ class LaptopPilot:
         initial_residual=100
         residual_threshold=1E-12
         delta_threshold=1/1000
-        lim_iterations=40
+        lim_iterations=20
         n_iterations = 0
         delta_residual = initial_residual
         residual = initial_residual
@@ -689,17 +649,17 @@ class LaptopPilot:
             delta_residual = abs((prev_residual - residual) /prev_residual)
             n_iterations += 1
 
-            print('**************  Residual = ',residual,' ***************')        
+        # print('**************  Residual = ',residual,' ***************')        
             residual_continue = (residual > residual_threshold)
-            print('Residual above threshold?',residual_continue)    
+        # print('Residual above threshold?',residual_continue)    
             
-            print('************** Iteration = ',n_iterations,' ***************')
+        # print('************** Iteration = ',n_iterations,' ***************')
             iteration_continue = (n_iterations <= lim_iterations)
-            print('Iterations below limit?',iteration_continue)
+            #print('Iterations below limit?',iteration_continue)
             
-            print('********* Delta Residual = ',delta_residual,' ***************')
+            #print('********* Delta Residual = ',delta_residual,' ***************')
             converge_continue = (delta_residual > delta_threshold)
-            print('Residual still changing?',converge_continue)
+            #print('Residual still changing?',converge_continue)
             
             #reconstruct the graph with these nodes
             graph_opt = graphslam_frontend(graph_opt)   # Task
@@ -745,42 +705,22 @@ class LaptopPilot:
         return position_error
 
     def calculate_position_error(self, pose1, pose2):
+        """Calculate Euclidean distance between position components of poses"""
         return np.linalg.norm(pose1[:3, 3] - pose2[:3, 3])
 
-    def get_closest_landmark_id(self, corner_position):
-        corner_x = float(corner_position[0])
-        corner_y = float(corner_position[1])
-        
-        distances = [
-            np.sqrt((corner_x - x)**2 + (corner_y - y)**2) 
-            for x, y in self.landmark_locations
-        ]
-        
-        closest_id = np.argmin(distances)
-        min_distance = distances[closest_id]
-        
-        # Use distance threshold to validate landmarks
-        distance_threshold = 0.5 
-        valid = min_distance < distance_threshold
-        
-   
-        # if self.observation_counter == 0:
-        #     expected_id = closest_id
-        # elif closest_id == self.last_landmark_id:
-        #     expected_id = closest_id
-        # elif self.last_landmark_id == 3:
-        #     expected_id = 0
-        # else:
-        #     expected_id = self.last_landmark_id + 1
-        
-        print('Closest landmark ID:', closest_id)
-        # print('Last landmark ID:', self.last_landmark_id)
-        # print('Distance to closest landmark:', min_distance)
-        # print('Expected landmark ID:', expected_id)
-        # print('Valid:', valid)
-        valid = True
-        return valid, closest_id
 
+    
+    def qualify_corner(self, detected_corner):
+        tolerance = 0.5
+        print("DETECTED CORNER", detected_corner)
+        for landmark in self.landmark_locations:
+            distance = np.linalg.norm(detected_corner - landmark)
+
+            if distance < tolerance:
+                return True
+
+        return False
+    
     def infinite_loop(self):
         """
         Main control loop that runs continuously.
@@ -812,7 +752,7 @@ class LaptopPilot:
             p_gt[0] = self.measured_pose_northings_m
             p_gt[1] = self.measured_pose_eastings_m
             p_gt[2] = self.measured_pose_yaw_rad 
-            self.p_gt_path.append(p_gt)
+
             # Log the measurement
             self.datalog.log(msg, topic_name="/aruco")
             self.aruco_count += 1
@@ -848,7 +788,7 @@ class LaptopPilot:
             self.generate_trajectory()
 
             
-            self.gpc_corner = joblib.load('gpc_model.pkl')
+
 
 
 
@@ -873,7 +813,7 @@ class LaptopPilot:
             p_gt[0] = self.measured_pose_northings_m
             p_gt[1] = self.measured_pose_eastings_m
             p_gt[2] = self.measured_pose_yaw_rad 
-            self.p_gt_path.append(p_gt)
+
 
             # Calculate time step
             t_now = datetime.utcnow().timestamp()
@@ -882,12 +822,15 @@ class LaptopPilot:
             self.t_prev = t_now
 
             if dt != 0:
-
+                # self.state, self.covariance = extended_kalman_filter_predict(
+                #     self.state, self.covariance, u, motion_model, self.R, dt
+                # )
                 p_=copy.copy(self.state)
                 sigma_=copy.copy(self.sigma)  
                 #print(self.sigma)
                 self.state, self.sigma, self.d_p_eb, p_gt =  rigid_body_kinematics(self.state,u,dt=dt,mu_gt=p_gt,sigma_motion=self.sigma_motion,sigma_xy=self.sigma)
                 #print(self.sigma)
+
 
             # Extract pose estimates from state
             self.est_pose_northings_m = self.state[self.N, 0]
@@ -978,108 +921,6 @@ class LaptopPilot:
 
 
 
-        #     t_em = Vector(2)
-        #     t_em[0] = 0
-        #     t_em[1] = 0
-        #     if self.lidar_data is not None:
-        #         observation, _ = lidar_scan(
-        #             p_eb, self.lidar_data, self.lidar, self.sigma_observe
-        #         )
-        #         if (observation is not None or not np.isnan(observation.data_filled[:, 0]).any()):
-        #             new_observation = self.GPC_input_output(observation, None)
-        #             feats = new_observation.data_filled[:, 0].reshape(1, -1)
-
-        #             # get both label and probability
-        #             probs = self.gpc_corner.predict_proba(feats)[0]
-        #             max_p = np.max(probs)
-        #             label = self.gpc_corner.classes_[np.argmax(probs)]
-        #             new_observation.label = label
-                    
-        #             if new_observation.label == "corner" and max_p >= self.prob_thresh:
-        #                 # print(f"Detected corner with probability {max_p:.2f} at {new_observation.data_filled[:, 0]}")
-        #                 r, theta, idx = self.find_corner(new_observation)
-        #                 # print('r, theta, idx', r, theta, idx)
-        #                 if r is not None:
-        #                     x_l, y_l = polar2cartesian(r, theta)
-        #                     H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
-        #                     t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
-                        
-        #                     self.corner_detected = True
-        #                     self.corner_pose_northings = t_em[0]
-        #                     self.corner_pose_eastings = t_em[1]
-
-        #                     print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
-                            
-        #                     ts = datetime.utcnow().isoformat()
-        #                     self._corner_writer.writerow([
-        #                         ts,
-        #                         float(t_em[0]),
-        #                         float(t_em[1]),
-        #                         self.landmark_id
-        #                     ])
-        #                     self._corner_log.flush()
-                            
-        #         #t_em, flag = self.run_classifier(p_eb)
-    
-    
-        #         # Get the current pose in the graph
-    
-
-        #     #CONDITION FOR WHEN A LANDMARK IS OBSERVED
-        #     if self.corner_detected == True:
-        #         self.observation_counter += 1
-        #         _, _, t_lm, sigma_xy = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
-                   
-
-        #         if hasattr(t_em, 'shape') and t_em.shape == (2,):
-        #             t_em = t_em.reshape(2, 1)
-                    
-        #         if hasattr(t_lm, 'shape') and t_lm.shape == (2,):
-        #             t_lm = t_lm.reshape(2, 1)
-
-        #         # print('t_em', t_em)
-        #         # print('t_lm', t_lm)
-                
-
-        #         valid, id = self.get_closest_landmark_id(t_em)
-        #         if valid:
-        #             self.landmark_id = id
-
-
-
-        #         current_time = datetime.utcnow().timestamp()
-
-        #         # if self.last_landmark_timestamp is None or (current_time - self.last_landmark_timestamp) > 3.0:            # Update landmark tracking
-        #         #     self.landmark_visits[self.landmark_id] += 1
-        #         #     print(f'Observation of Landmark ID {self.landmark_id} (Visit #{self.landmark_visits[self.landmark_id]})')
-                    
-                # if self.last_landmark_id == 1 and self.landmark_id == 0:
-                #     self.loop_count += 1
-                #     print("LOOP", self.loop_count ,"COMPLETED: Detected transition from landmark 3 back to landmark 0")
-
-
-        #         if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
-        #             not np.isnan(t_em[0]) and not np.isnan(t_em[1]) and valid == True):
-
-        #             self.graph.observation(t_em, sigma_xy,self.landmark_id, t_lm)   
-        #             print('t_lm', t_lm) 
-        #             print( '(',self.observation_counter,')', 'Observation of Landmark ID',self.landmark_id)
-        #             self.last_landmark_id = self.landmark_id
-        #             self.last_landmark_timestamp = current_time
-
-        #         self.corner_detected = False
-
-        #     else:
-        #         p_=copy.copy(self.state)
-        #         sigma_=copy.copy(self.sigma)
-        #         # adds to the graph as a motion
-        #         self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
-        #         # print('Underwent Motion')
-
-
-        # # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
-
-
             if  self.update_landmark:
 
                 self.landmark_index = 3 - np.argmin(
@@ -1122,16 +963,15 @@ class LaptopPilot:
                     self.motion_timer = self.motion_interval
 
 
-        if self.loop_count >= 2 and self.optimised == False:
+        # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
+
+        if self.loop_count >= 1:
             self.stop_robot()
             # self.loop_count += 1
             p_=copy.copy(self.state)
             sigma_=copy.copy(self.sigma)
-            p_gt[0] = self.measured_pose_northings_m
-            p_gt[1] = self.measured_pose_eastings_m
-            p_gt[2] = self.measured_pose_yaw_rad 
-            self.p_gt_path.append(p_gt)
-            # completes the motionf
+
+            # completes the motion
             self.graph.motion(p_, sigma_, Vector(3), final=True)
             print('Finish graph data association')
             print('*************************************************')
@@ -1139,8 +979,8 @@ class LaptopPilot:
             ########### BACKEND ###############
             print('Before graph construction:')
             self.graph.construct_graph()
-
             graph_init = copy.deepcopy(self.graph)
+            graph_validate = copy.deepcopy(self.graph)
             graph_opt = graphslam_backend(graph_init)
 
             print('after backend')
@@ -1150,78 +990,19 @@ class LaptopPilot:
 
             optimised_graph_pose = graph_opt.reduce2pose()
 
-
-
-            em = Vector(2)
-            H_em = HomogeneousTransformation(em, 0)
-            
-            m_e0 = Vector(2)
-            m_e0[0] = 0
-            m_e0[1] = 0
-            
-            m_e1 = Vector(2)
-            m_e1[0] = 2
-            m_e1[1] = 0
-            
-            m_e2 = Vector(2)
-            m_e2[0] = 2
-            m_e2[1] = 2
-            
-            m_e3 = Vector(2)
-            m_e3[0] = 0
-            m_e3[1] = 2
-
-
-            
-
-            map_ground_truth = [m_e0, m_e1, m_e2, m_e3]
-            map_labels = ['c0', 'c1', 'c2','c3']
-            plot_graph(graph_init, self.p_gt_path, H_em, map_ground_truth, map_labels)
-            plot_graph(graph_opt, self.p_gt_path, H_em, map_ground_truth, map_labels)
-            # plot_graph(optimised_graph_pose, self.p_gt_path, H_em, map_ground_truth, map_labels)
-
             update_pose = next((p for p in reversed(optimised_graph_pose.pose) if np.any(p != 0)), None)
             update_pose = np.array(update_pose).flatten()
 
-            # plot_graph(update_pose, self.p_gt_path, H_em, map_ground_truth, map_labels)
 
-            print('\n' + '='*50)
-            print('{:<20} {:<12} {:<12} {:<12}'.format('State Component', 'North (m)', 'East (m)', 'Yaw (rad)'))
-            print('-'*50)
-
-            print('{:<20} {:<12.4f} {:<12.4f} {:<12.4f}'.format(
-                'Unoptimised state:', 
-                float(p_[0, 0] if p_.shape[1] > 0 else p_[0]), 
-                float(p_[1, 0] if p_.shape[1] > 0 else p_[1]), 
-                float(p_[2, 0] if p_.shape[1] > 0 else p_[2])
-            ))
-
-            print('{:<20} {:<12.4f} {:<12.4f} {:<12.4f}'.format(
-                'Optimised Pose:', 
-                float(update_pose[0]), 
-                float(update_pose[1]), 
-                float(update_pose[2])
-            ))
-
-            print('{:<20} {:<12.4f} {:<12.4f} {:<12.4f}'.format(
-                'Actual state:', 
-                float(p_gt[0, 0] if p_gt.shape[1] > 0 else p_gt[0]), 
-                float(p_gt[1, 0] if p_gt.shape[1] > 0 else p_gt[1]), 
-                float(p_gt[2, 0] if p_gt.shape[1] > 0 else p_gt[2])
-            ))
-
-            print('='*50)
+            # self.evaluate_graphslam_performance(
+            #     self.state, update_pose, p_gt
+            # )
 
 
-            print("Last 10 actual ground truth poses\n", self.p_gt_path[-10:])
-            print("last 5 Non-optimised poses\n", graph_init.pose[-10:]) 
-            print("\n last 5 Optimised poses\n", optimised_graph_pose.pose[-10:])
-            
+            print('Unoptimised state:', self.state)
+            print('Optimised Pose:', update_pose)
+            print('Actual state:', p_gt)
 
-            print('\nMotion Model Noise Matrix (sigma_motion):')
-            print(self.sigma_motion)
-            print('\nObservation Model Noise Matrix (sigma_observe):')
-            print(self.sigma_observe)
 
             self.state[self.N] = update_pose[self.N]
             self.state[self.E] = update_pose[self.E]
@@ -1233,12 +1014,7 @@ class LaptopPilot:
 
             print('After graph construction')
             self.completed_loop = False
-            self.optimised = True
 
-
-
-            
-            self.graph.construct_graph(visualise_flag=True)
 
 
 
