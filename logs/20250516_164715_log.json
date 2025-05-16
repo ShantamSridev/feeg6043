@@ -1,0 +1,1 @@
+{"class": "Vector3Stamped", "topic_name": "/true_wheel_speeds", "timestamp": "1747406835.239684", "message": {"header": {"seq": 0, "stamp": 466.6088881492615, "frame_id": ""}, "vector": {"x": 2.1514315541734033, "y": 2.1572083609810835, "z": 0.0}}}

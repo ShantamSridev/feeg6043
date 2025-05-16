@@ -1609,121 +1609,79 @@ def plot_gp_functions(x,fx_samples, mu, std, xlim = [0,1],ylim = [-1,1],n_show =
     plt.show()
 
 def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
+    """
+    Plot the graph with points for poses instead of full coordinate frames,
+    and include a clear ground truth path line.
+    """
     print('Plotting graph')
     graph = copy.copy(graph_object)
     # establish the map
     fig = plt.figure()
     ax = plt.subplot(111, aspect='equal')
     
-    # Calculate sampling interval to show approximately 10 poses for ground truth
-    total_gt_poses = len(p_gt_path)
-
-    # Calculate interval to get approximately 10 poses
-    sample_interval_gt = max(1, (total_gt_poses - 1) // (10 - 1))
-    print(f"Total ground truth poses: {total_gt_poses}, Sample interval: {sample_interval_gt}")
-    
-    # Create a sampled version of the ground truth path
-    sampled_gt_path = []
-    for i in range(0, total_gt_poses, sample_interval_gt):
-        sampled_gt_path.append(p_gt_path[i])
-    
-    # Make sure to include the last pose if it's not already included
-    if not np.array_equal(sampled_gt_path[-1], p_gt_path[-1]):
-        sampled_gt_path.append(p_gt_path[-1])
-    
-    print(f"Original GT path length: {total_gt_poses}, Sampled GT path length: {len(sampled_gt_path)}")
-    
-    # Calculate sampling interval for motion edges and poses
-
-
-    # Collect all pose positions to draw a continuous trace line
-    pose_positions = []
-    for i in range(len(graph.pose)):
-        if i < len(graph.pose) and any(graph.pose[i]):  # Check if pose is not empty/zero
-            pose_positions.append((float(graph.pose[i][1]), float(graph.pose[i][0])))  # (East, North)
-    
-    # Plot landmarks
-    print('Plotting landmarks')
+    # Plot landmarks (unchanged from original)
     for i in range(len(m_gt)):        
         cf = plot_2dframe(['map','e',m_labels[i]], [H_em.H, v2t(m_gt[i])], False)
         cf._point()
     
-    # Plot edges with sampling
-    print('Plotting edges')
-    motion_count = 0
-    
-    # First plot the continuous trace line for all poses
-    if pose_positions:
-        pose_x = [pos[0] for pos in pose_positions]  # East coordinates
-        pose_y = [pos[1] for pos in pose_positions]  # North coordinates
-        ax.plot(pose_x, pose_y, 'b--', linewidth=1.5, label='Robot Trace', alpha=0.7)
-    
     # Lists to collect pose positions for plotting as dots
     estimated_pose_x = []
     estimated_pose_y = []
+    gt_pose_x = []
+    gt_pose_y = []
     
+    # First collect all ground truth poses for line
+    for i in range(len(p_gt_path)):
+        gt_pose_x.append(float(p_gt_path[i][1]))  # East coordinate
+        gt_pose_y.append(float(p_gt_path[i][0]))  # North coordinate
+    
+    # Plot edges (similar to original but with points)
     for k in range(len(graph.edge)):  
         if graph.edge[k][0] == 'landmark':
             i = graph.edge[k][1]
             l = graph.edge[k][2]
             z_il = graph.edge[k][3]
-            
-            # Check if index is valid before accessing
-            if i < len(p_gt_path):
-                X_igt = HomogeneousTransformation(p_gt_path[i][0:2], p_gt_path[i][2])
-                X_i = HomogeneousTransformation(graph.pose[i][0:2], graph.pose[i][2])  
-                show_observation(X_i, z_il, (graph.landmark_covariance[l]), 'm', ax)          
+            X_igt = HomogeneousTransformation(p_gt_path[i][0:2], p_gt_path[i][2])
+            X_i = HomogeneousTransformation(graph.pose[i][0:2], graph.pose[i][2])  
+            show_observation(X_i, z_il, (graph.landmark_covariance[l]), 'm', ax)          
         
-        elif graph.edge[k][0] == 'motion':
-            motion_count += 1
-            
+        if graph.edge[k][0] == 'motion':
             i = graph.edge[k][1]
             j = graph.edge[k][2]
             
-            # Check if indices are valid
-            if i < len(graph.pose) and j < len(graph.pose):
-                # Plot the current pose covariance ellipse
-                X_i = HomogeneousTransformation(graph.pose[i][0:2], graph.pose[i][2])                            
-                x = (graph.pose[i][0:2]).tolist()
-                s = (graph.pose_covariance[i])[0:2,0:2].tolist()
-                e = sigma_contour([x[1],x[0]], [[s[1][1],s[1][0]], [s[0][1],s[0][0]]], 'b')
-                e.set_facecolor('none')
-                ax.add_patch(e)            
-                
-                # Plot the next pose covariance ellipse
-                X_j = HomogeneousTransformation(graph.pose[j][0:2], graph.pose[j][2])                    
-                x = (graph.pose[j][0:2]).tolist()
-                s = (graph.pose_covariance[j])[0:2,0:2].tolist()
-                e = sigma_contour([x[1],x[0]], [[s[1][1],s[1][0]], [s[0][1],s[0][0]]], 'b')
-                e.set_facecolor('none')
-                ax.add_patch(e)            
-                
-                # CHANGED: Instead of drawing coordinate frames, collect positions for dots
-                estimated_pose_x.append(float(graph.pose[i][1]))  # East coordinate
-                estimated_pose_y.append(float(graph.pose[i][0]))  # North coordinate
-                estimated_pose_x.append(float(graph.pose[j][1]))  # East coordinate
-                estimated_pose_y.append(float(graph.pose[j][0]))  # North coordinate
+            # Add positions to our collection for later plotting
+            estimated_pose_x.append(float(graph.pose[i][1]))  # East coordinate
+            estimated_pose_y.append(float(graph.pose[i][0]))  # North coordinate
+            
+            # Plot covariance ellipses (keeping original colors)
+            X_i = HomogeneousTransformation(graph.pose[i][0:2], graph.pose[i][2])                            
+            x = (graph.pose[i][0:2]).tolist()
+            s = (graph.pose_covariance[i])[0:2,0:2].tolist()
+            e = sigma_contour([x[1],x[0]], [[s[1][1],s[1][0]], [s[0][1],s[0][0]]], 'g')
+            e.set_facecolor('none')
+            ax.add_patch(e)            
+            
+            X_j = HomogeneousTransformation(graph.pose[j][0:2], graph.pose[j][2])                    
+            x = (graph.pose[j][0:2]).tolist()
+            s = (graph.pose_covariance[j])[0:2,0:2].tolist()
+            e = sigma_contour([x[1],x[0]], [[s[1][1],s[1][0]], [s[0][1],s[0][0]]], 'g')
+            e.set_facecolor('none')
+            ax.add_patch(e)
     
-    # ADDED: Plot the collected pose positions as dots
+    # Plot ground truth path as a solid green line
+    if gt_pose_x:
+        ax.plot(gt_pose_x, gt_pose_y, 'g-', linewidth=2.5, label='Ground Truth Path')
+    
+    # Plot ground truth positions as green dots
+    ax.scatter(gt_pose_x, gt_pose_y, color='green', s=40, marker='o', label='Ground Truth Positions')
+    
+    # Plot estimated positions as blue dots
     if estimated_pose_x:
-        ax.scatter(estimated_pose_x, estimated_pose_y, color='blue', s=40, marker='o', label='Pose Positions')
-    
-    # Plot the sampled ground truth path
-    print('Plotting ground truth path')
-    
-    # Add direct line plotting for ground truth path
-    if len(sampled_gt_path) > 1:
-        # Create manual line for ground truth path for better visibility
-        gt_x = [float(pose[1]) for pose in sampled_gt_path]  # East coordinates
-        gt_y = [float(pose[0]) for pose in sampled_gt_path]  # North coordinates
-        
-        # Plot a thick, solid green line for ground truth
-        ax.plot(gt_x, gt_y, 'g-', linewidth=3, label='Ground Truth Path')
-    
-    # CHANGED: Instead of plotting coordinate frames for ground truth, plot dots
-    gt_dots_x = [float(pose[1]) for pose in sampled_gt_path]  # East coordinates
-    gt_dots_y = [float(pose[0]) for pose in sampled_gt_path]  # North coordinates
-    ax.scatter(gt_dots_x, gt_dots_y, color='green', s=50, marker='o', label='Ground Truth Positions')
+        # Plot a trace line for estimated poses
+        ax.plot(estimated_pose_x, estimated_pose_y, 'b--', linewidth=1.0, alpha=0.6, label='Robot Trace')
+        # Plot the positions as dots
+        ax.scatter(estimated_pose_x, estimated_pose_y, color='blue', s=30, marker='o', 
+                  label='Estimated Poses')
     
     # make plots
     plt.axis('equal')
@@ -1738,9 +1696,8 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
         if label not in unique_labels:
             unique_labels[label] = handle
     plt.legend(handles=unique_labels.values(), labels=unique_labels.keys(),bbox_to_anchor=(1.05, 1.0),loc="upper left")
-    plt.savefig(str(time.time())+'.png')
-    plt.show()
-
+    plt.savefig(str(time.time()) + "_graph.png")
+    
 def show_scan(p_eb, lidar, observations, ax, show_lines = True):
     """ Plots observations, field of view and robot pose
     """

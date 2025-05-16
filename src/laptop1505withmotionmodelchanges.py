@@ -28,6 +28,8 @@ import csv
 import os
 from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import PCA
+import numpy as np
+import matplotlib.pyplot as plt
 
 def calculate_curvature(points, k=5):
     """
@@ -75,6 +77,105 @@ def is_corner(lidar_scan, threshold):
         return np.array(max_coord)
     else:
         return None
+    
+
+def plot_robot_paths(optimised_poses, non_optimised_poses, ground_truth_poses, filename='robot_trajectory.png'):
+    """
+    A simple function to plot robot trajectory data.
+   
+    Args:
+        optimised_poses: List of optimised pose arrays [north, east, yaw]
+        non_optimised_poses: List of non-optimised pose arrays [north, east, yaw]
+        ground_truth_poses: List of ground truth pose arrays [north, east, yaw]
+        filename: Output filename for the plot
+       
+    Returns:
+        None (saves plot to file)
+    """
+    import datetime
+    
+    # Add timestamp to filename
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename_with_timestamp = f"{timestamp}_{filename}"
+    
+    print("shoulda printed")
+    # Create figure
+    plt.figure(figsize=(10, 8))
+   
+    # Extract and plot ground truth path
+    gt_x, gt_y = [], []
+    for pose in ground_truth_poses:
+        # Handle both column vectors and flat arrays
+        if hasattr(pose, 'shape') and len(pose.shape) > 1 and pose.shape[1] > 0:
+            gt_y.append(float(pose[0, 0]))
+            gt_x.append(float(pose[1, 0]))
+        else:
+            gt_y.append(float(pose[0]))
+            gt_x.append(float(pose[1]))
+   
+    plt.plot(gt_x, gt_y, 'b-', linewidth=2, label='Ground Truth')
+   
+    # Extract and plot non-optimised path
+    non_opt_x, non_opt_y = [], []
+    for pose in non_optimised_poses:
+        if hasattr(pose, 'shape') and len(pose.shape) > 1 and pose.shape[1] > 0:
+            non_opt_y.append(float(pose[0, 0]))
+            non_opt_x.append(float(pose[1, 0]))
+        else:
+            non_opt_y.append(float(pose[0]))
+            non_opt_x.append(float(pose[1]))
+   
+    plt.plot(non_opt_x, non_opt_y, 'r--', linewidth=2, label='Non-Optimised')
+   
+    # Extract and plot optimised path
+    opt_x, opt_y = [], []
+    for pose in optimised_poses:
+        if hasattr(pose, 'shape') and len(pose.shape) > 1 and pose.shape[1] > 0:
+            opt_y.append(float(pose[0, 0]))
+            opt_x.append(float(pose[1, 0]))
+        else:
+            opt_y.append(float(pose[0]))
+            opt_x.append(float(pose[1]))
+   
+    plt.plot(opt_x, opt_y, 'g-.', linewidth=2, label='Optimised')
+   
+    # Add start and end points
+    if gt_x and gt_y:
+        plt.plot(gt_x[0], gt_y[0], 'bo', markersize=8)
+        plt.plot(gt_x[-1], gt_y[-1], 'b*', markersize=10)
+   
+    if non_opt_x and non_opt_y:
+        plt.plot(non_opt_x[0], non_opt_y[0], 'ro', markersize=8)
+        plt.plot(non_opt_x[-1], non_opt_y[-1], 'r*', markersize=10)
+   
+    if opt_x and opt_y:
+        plt.plot(opt_x[0], opt_y[0], 'go', markersize=8)
+        plt.plot(opt_x[-1], opt_y[-1], 'g*', markersize=10)
+   
+    # Add landmarks
+    landmarks = [(0.0, 0.0), (0.0, 2.0), (2.0, 2.0), (2.0, 0.0)]
+    lm_x = [x for x, y in landmarks]
+    lm_y = [y for x, y in landmarks]
+    plt.scatter(lm_x, lm_y, c='purple', s=100, marker='D', label='Landmarks')
+   
+    # Add landmark labels
+    for i, (x, y) in enumerate(landmarks):
+        plt.annotate(f"L{i}", (x, y), xytext=(5, 5), textcoords='offset points')
+   
+    # Set labels and title
+    plt.xlabel('East (m)', fontsize=12)
+    plt.ylabel('North (m)', fontsize=12)
+    plt.title('Robot Trajectory Comparison', fontsize=14)
+    plt.grid(True)
+    plt.axis('equal')  # Equal aspect ratio
+    plt.legend(loc='best')
+   
+    # Save to file and close
+    plt.tight_layout()
+    plt.savefig(filename_with_timestamp)
+    plt.close()
+    print(f"Plot saved to {filename_with_timestamp}")
+
 
 class LaptopPilot:
     """
@@ -154,8 +255,11 @@ class LaptopPilot:
         # ============ PATH WAYPOINTS ============
         # Define the path the robot should follow as a series of points
         # Each point has a northing (y) and easting (x) coordinate
-        self.northings_path_single = [0.2, 1.2, 1.2, 0.2]
-        self.eastings_path_single = [0.0, 0.0, 1.1, 1.1]
+
+
+        self.lap_count = 2
+        self.northings_path_single = [0.2, 1.2, 1.2, 0.2] * self.lap_count
+        self.eastings_path_single = [0.0, 0.0, 1.1, 1.1] * self.lap_count
         self.northings_path = self.northings_path_single + self.northings_path_single + [0.0]
         self.eastings_path = self.eastings_path_single + self.eastings_path_single + [0.0]  
         self.relative_path = True  # If True, path is relative to robot's starting position
@@ -255,7 +359,7 @@ class LaptopPilot:
          # ============ SLAM SETUP ============
 
         #Motion model linear noise due to v and w
-        self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion=Matrix(3,2)
         # self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           #Task
         # self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
         # self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
@@ -285,13 +389,247 @@ class LaptopPilot:
 
 
 
+
+        # # BEST SIGMA MOTION
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.14**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.1)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.14**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.14**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on gamma
+
+
+
+
+        # # INCREASE THE UNCERTAINTY WHEN THE ROBOT TURNS
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.14**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.1)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.14**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.14**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.8)**2 # impact of w angular velocity on gamma #HERE
+
+
+
+        # INCREASE THE UNCERTAINTY WHEN THE ROBOT TURNS
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.16**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.16**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.14**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.7)**2 # impact of w angular velocity on gamma #HERE
+
+
+
+
+        # First RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.0155**2 # impact of v linear velocity on x           #Task
+        # self.sigma_motion[0,1]= np.deg2rad(0.012)**2# impact of w angular velocity on x
+        # self.sigma_motion[1,0]= 0.0155**2# impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.012)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]= 0.00155**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.0012)**2 # impact of w angular velocity on gamma
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.3**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(20)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+
+        # SECOND RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.16**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.16**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.14**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.7)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.3**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(20)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # THIRD RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.05**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.05)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.05**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.05)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.05**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.25**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(17)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+        # # FOURTH RUN
         self.sigma_motion=Matrix(3,2)
-        self.sigma_motion[0,0]= 0.12**2 # impact of v linear velocity on x           #Task
-        self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
-        self.sigma_motion[1,0]=0.12**2 # impact of v linear velocity on y
-        self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
-        self.sigma_motion[2,0]=0.12**2 # impact of v linear velocity on gamma
-        self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
+        self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           
+        self.sigma_motion[0,1]= np.deg2rad(0.1)**2 # impact of w angular velocity on x
+        self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+        self.sigma_motion[1,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on y
+        self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # Observation model linear noise with range
+        self.sigma_observe = Matrix(2, 2)
+        self.sigma_observe[0, 0] = 0.22**2  # 20% of range
+        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[1, 0] = np.deg2rad(17)**2  # 10 degree per metre range
+        self.sigma_observe[1, 1] = 0
+        print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # # FIFTH RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.07**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.1)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.07**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.07**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.22**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(17)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # SIXTH RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.09**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.1)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.09**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.09**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.22**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(17)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+        # print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # SIXTH RUN
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.09**2 # impact of v linear velocity on x           
+        # self.sigma_motion[0,1]= np.deg2rad(0.3)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.09**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.09**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # # Observation model linear noise with range
+        # self.sigma_observe = Matrix(2, 2)
+        # self.sigma_observe[0, 0] = 0.22**2  # 20% of range
+        # self.sigma_observe[0, 1] = 0
+        # self.sigma_observe[1, 0] = np.deg2rad(17)**2  # 10 degree per metre range
+        # self.sigma_observe[1, 1] = 0
+
+
+
+        # # SEVENTH RUN
+        self.sigma_motion=Matrix(3,2)
+        self.sigma_motion[0,0]= 0.14**2 # impact of v linear velocity on x           
+        self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
+        self.sigma_motion[1,0]=0.14**2 # impact of v linear velocity on y
+        self.sigma_motion[1,1]=np.deg2rad(0.14)**2 # impact of w angular velocity on y
+        self.sigma_motion[2,0]=0.14**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # Observation model linear noise with range
+        self.sigma_observe = Matrix(2, 2)
+        self.sigma_observe[0, 0] = 0.26**2  # 20% of range
+        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[1, 0] = np.deg2rad(18)**2  # 10 degree per metre range
+        self.sigma_observe[1, 1] = 0
+        print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # # EIGHT RUN
+        self.sigma_motion=Matrix(3,2)
+        self.sigma_motion[0,0]= 0.2**2 # impact of v linear velocity on x           
+        self.sigma_motion[0,1]= np.deg2rad(0.14)**2 # impact of w angular velocity on x
+        self.sigma_motion[1,0]=0.2**2 # impact of v linear velocity on y
+        self.sigma_motion[1,1]=np.deg2rad(0.14)**2 # impact of w angular velocity on y
+        self.sigma_motion[2,0]=0.2**2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma #HERE
+
+
+        # Observation model linear noise with range
+        self.sigma_observe = Matrix(2, 2)
+        self.sigma_observe[0, 0] = 0.26**2  # 20% of range
+        self.sigma_observe[0, 1] = 0
+        self.sigma_observe[1, 0] = np.deg2rad(18)**2  # 10 degree per metre range
+        self.sigma_observe[1, 1] = 0
+        print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
+
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.05**2 # impact of v linear velocity on x           #Task
+        # self.sigma_motion[0,1]= np.deg2rad(0.5)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.05**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.05**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on gamma
+
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.09**2 # impact of v linear velocity on x           #Task
+        # self.sigma_motion[0,1]= np.deg2rad(0.9)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.09**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.09**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on gamma
+
+
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.1**2 # impact of v linear velocity on x           #Task
+        # self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.1**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on gamma
+
+
+         # TEST SIGMA MOTION
+        # self.sigma_motion=Matrix(3,2)
+        # self.sigma_motion[0,0]= 0.2**2 # impact of v linear velocity on x           #Task
+        # self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
+        # self.sigma_motion[1,0]=0.2**2 # impact of v linear velocity on y
+        # self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
+        # self.sigma_motion[2,0]=0.2**2 # impact of v linear velocity on gamma
+        # self.sigma_motion[2,1]=np.deg2rad(0.2)**2 # impact of w angular velocity on gamma
 
 
         # self.sigma_motion=Matrix(3,2)
@@ -304,13 +642,7 @@ class LaptopPilot:
 
         print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
-        # Observation model linear noise with range
-        self.sigma_observe = Matrix(2, 2)
-        self.sigma_observe[0, 0] = 0.2**2  # 10% of range
-        self.sigma_observe[0, 1] = 0
-        self.sigma_observe[1, 0] = np.deg2rad(5)**2  # 5 degree per metre range
-        self.sigma_observe[1, 1] = 0
-        print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
+
 
 
         # anchor constraint, matrix must be invertable
@@ -455,7 +787,7 @@ class LaptopPilot:
 
             corner_confidence = self.gpc.predict_proba(input)[0][1]
 
-            if corner_confidence > 0.75:
+            if corner_confidence > 0.73:
                 scan = np.nan_to_num(scan, nan=0.0)
                 curvature = np.nan_to_num(calculate_curvature(scan, k=5), nan=0.0)
                 max_coord = np.array(scan[np.argmax(curvature), :2])
@@ -746,6 +1078,17 @@ class LaptopPilot:
 
     def calculate_position_error(self, pose1, pose2):
         return np.linalg.norm(pose1[:3, 3] - pose2[:3, 3])
+    
+    def calculate_rmse(self, poses1, poses2, max_count=60):
+        count = min(len(poses1), len(poses2), max_count)
+        sum_squared_error = 0.0
+        for i in range(count):
+            p1 = poses1[-count+i]
+            p2 = poses2[-count+i]
+            n1, e1 = float(p1[0]) if not hasattr(p1, 'shape') else float(p1[0, 0]), float(p1[1]) if not hasattr(p1, 'shape') else float(p1[1, 0])
+            n2, e2 = float(p2[0]) if not hasattr(p2, 'shape') else float(p2[0, 0]), float(p2[1]) if not hasattr(p2, 'shape') else float(p2[1, 0])
+            sum_squared_error += (n1 - n2)**2 + (e1 - e2)**2
+        return np.sqrt(sum_squared_error / count)
 
     def get_closest_landmark_id(self, corner_position):
         corner_x = float(corner_position[0])
@@ -977,109 +1320,6 @@ class LaptopPilot:
                 self.datalog.log(wheel_speed_msg, topic_name="/wheel_speeds_cmd")
 
 
-
-        #     t_em = Vector(2)
-        #     t_em[0] = 0
-        #     t_em[1] = 0
-        #     if self.lidar_data is not None:
-        #         observation, _ = lidar_scan(
-        #             p_eb, self.lidar_data, self.lidar, self.sigma_observe
-        #         )
-        #         if (observation is not None or not np.isnan(observation.data_filled[:, 0]).any()):
-        #             new_observation = self.GPC_input_output(observation, None)
-        #             feats = new_observation.data_filled[:, 0].reshape(1, -1)
-
-        #             # get both label and probability
-        #             probs = self.gpc_corner.predict_proba(feats)[0]
-        #             max_p = np.max(probs)
-        #             label = self.gpc_corner.classes_[np.argmax(probs)]
-        #             new_observation.label = label
-                    
-        #             if new_observation.label == "corner" and max_p >= self.prob_thresh:
-        #                 # print(f"Detected corner with probability {max_p:.2f} at {new_observation.data_filled[:, 0]}")
-        #                 r, theta, idx = self.find_corner(new_observation)
-        #                 # print('r, theta, idx', r, theta, idx)
-        #                 if r is not None:
-        #                     x_l, y_l = polar2cartesian(r, theta)
-        #                     H_eb = HomogeneousTransformation(p_eb[0:2], p_eb[2]) 
-        #                     t_em = t2v(H_eb.H@self.lidar.H_bl.H@v2t([x_l, y_l]))
-                        
-        #                     self.corner_detected = True
-        #                     self.corner_pose_northings = t_em[0]
-        #                     self.corner_pose_eastings = t_em[1]
-
-        #                     print(f"#######################\n\n CORNER DETECTED at: [{t_em[0]:.3f}, {t_em[1]:.3f}] \n\n#######################")
-                            
-        #                     ts = datetime.utcnow().isoformat()
-        #                     self._corner_writer.writerow([
-        #                         ts,
-        #                         float(t_em[0]),
-        #                         float(t_em[1]),
-        #                         self.landmark_id
-        #                     ])
-        #                     self._corner_log.flush()
-                            
-        #         #t_em, flag = self.run_classifier(p_eb)
-    
-    
-        #         # Get the current pose in the graph
-    
-
-        #     #CONDITION FOR WHEN A LANDMARK IS OBSERVED
-        #     if self.corner_detected == True:
-        #         self.observation_counter += 1
-        #         _, _, t_lm, sigma_xy = self.lidar.loc_to_rangeangle( p_eb, t_em, sigma_observe=self.sigma_observe) 
-                   
-
-        #         if hasattr(t_em, 'shape') and t_em.shape == (2,):
-        #             t_em = t_em.reshape(2, 1)
-                    
-        #         if hasattr(t_lm, 'shape') and t_lm.shape == (2,):
-        #             t_lm = t_lm.reshape(2, 1)
-
-        #         # print('t_em', t_em)
-        #         # print('t_lm', t_lm)
-                
-
-        #         valid, id = self.get_closest_landmark_id(t_em)
-        #         if valid:
-        #             self.landmark_id = id
-
-
-
-        #         current_time = datetime.utcnow().timestamp()
-
-        #         # if self.last_landmark_timestamp is None or (current_time - self.last_landmark_timestamp) > 3.0:            # Update landmark tracking
-        #         #     self.landmark_visits[self.landmark_id] += 1
-        #         #     print(f'Observation of Landmark ID {self.landmark_id} (Visit #{self.landmark_visits[self.landmark_id]})')
-                    
-                # if self.last_landmark_id == 1 and self.landmark_id == 0:
-                #     self.loop_count += 1
-                #     print("LOOP", self.loop_count ,"COMPLETED: Detected transition from landmark 3 back to landmark 0")
-
-
-        #         if (not np.isnan(t_lm[0]) and not np.isnan(t_lm[1]) and 
-        #             not np.isnan(t_em[0]) and not np.isnan(t_em[1]) and valid == True):
-
-        #             self.graph.observation(t_em, sigma_xy,self.landmark_id, t_lm)   
-        #             print('t_lm', t_lm) 
-        #             print( '(',self.observation_counter,')', 'Observation of Landmark ID',self.landmark_id)
-        #             self.last_landmark_id = self.landmark_id
-        #             self.last_landmark_timestamp = current_time
-
-        #         self.corner_detected = False
-
-        #     else:
-        #         p_=copy.copy(self.state)
-        #         sigma_=copy.copy(self.sigma)
-        #         # adds to the graph as a motion
-        #         self.graph.motion(p_, sigma_, self.d_p_eb, final=False)
-        #         # print('Underwent Motion')
-
-
-        # # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
-
-
             if  self.update_landmark:
 
                 self.landmark_index = 3 - np.argmin(
@@ -1095,9 +1335,10 @@ class LaptopPilot:
                 print("Landmark ID: ", self.landmark_index)
 
                 if self.last_landmark == 3 and self.landmark_index == 0:
-                    print("LOOP COMPLETED: Detected transition from landmark 3 back to landmark 0")
-                    # self.completed_loop = True
                     self.loop_count += 1
+                    print("LOOP", self.loop_count, "COMPLETED: Detected transition from landmark 3 back to landmark 0")
+                    # self.completed_loop = True
+                    
 
                 self.visits[self.landmark_index]+=1
                 self.last_landmark = self.landmark_index
@@ -1131,6 +1372,7 @@ class LaptopPilot:
             p_gt[1] = self.measured_pose_eastings_m
             p_gt[2] = self.measured_pose_yaw_rad 
             self.p_gt_path.append(p_gt)
+
             # completes the motionf
             self.graph.motion(p_, sigma_, Vector(3), final=True)
             print('Finish graph data association')
@@ -1139,18 +1381,6 @@ class LaptopPilot:
             ########### BACKEND ###############
             print('Before graph construction:')
             self.graph.construct_graph()
-
-            graph_init = copy.deepcopy(self.graph)
-            graph_opt = graphslam_backend(graph_init)
-
-            print('after backend')
-
-            self.graph_optimisation_solve(graph_opt)
-
-
-            optimised_graph_pose = graph_opt.reduce2pose()
-
-
 
             em = Vector(2)
             H_em = HomogeneousTransformation(em, 0)
@@ -1176,8 +1406,22 @@ class LaptopPilot:
 
             map_ground_truth = [m_e0, m_e1, m_e2, m_e3]
             map_labels = ['c0', 'c1', 'c2','c3']
-            plot_graph(graph_init, self.p_gt_path, H_em, map_ground_truth, map_labels)
+
+            graph_init = copy.deepcopy(self.graph)
+            graph_valid = copy.deepcopy(self.graph)
+            graph_opt = graphslam_backend(graph_init)
+            print('after backend')
+
+            self.graph_optimisation_solve(graph_opt)
+
             plot_graph(graph_opt, self.p_gt_path, H_em, map_ground_truth, map_labels)
+
+            optimised_graph_pose = graph_opt.reduce2pose()
+
+
+
+
+            plot_graph(graph_valid, self.p_gt_path, H_em, map_ground_truth, map_labels)
             # plot_graph(optimised_graph_pose, self.p_gt_path, H_em, map_ground_truth, map_labels)
 
             update_pose = next((p for p in reversed(optimised_graph_pose.pose) if np.any(p != 0)), None)
@@ -1213,11 +1457,18 @@ class LaptopPilot:
             print('='*50)
 
 
-            print("Last 10 actual ground truth poses\n", self.p_gt_path[-10:])
-            print("last 5 Non-optimised poses\n", graph_init.pose[-10:]) 
-            print("\n last 5 Optimised poses\n", optimised_graph_pose.pose[-10:])
-            
+            non_opt_rmse = self.calculate_rmse(graph_valid.pose, self.p_gt_path)
+            opt_rmse = self.calculate_rmse(optimised_graph_pose.pose, self.p_gt_path)
+            improvement = 100 * (1 - opt_rmse / non_opt_rmse) if non_opt_rmse > 0 else 0
+            print(f"\nRMSE Position Error (Non-optimised): {non_opt_rmse:.4f} meters")
+            print(f"RMSE Position Error (Optimised): {opt_rmse:.4f} meters")
+            print(f"Position Improvement: {improvement:.2f}%")
 
+            print("Last 60 actual ground truth poses\n", self.p_gt_path[-60:])
+            print("last 60 Non-optimised poses\n", graph_valid.pose[-60:]) 
+            print("\n last 60 Optimised poses\n", optimised_graph_pose.pose[-60:])
+            plot_robot_paths(optimised_graph_pose.pose, graph_valid.pose, self.p_gt_path)
+            print("shoulda printed")
             print('\nMotion Model Noise Matrix (sigma_motion):')
             print(self.sigma_motion)
             print('\nObservation Model Noise Matrix (sigma_observe):')
@@ -1239,6 +1490,8 @@ class LaptopPilot:
 
             
             self.graph.construct_graph(visualise_flag=True)
+
+            self.loop_count = 0 
 
 
 
