@@ -1644,6 +1644,12 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
         sample_interval_motion = max(1, total_edges // 10)
     print(f"Total motion edges: {total_edges}, Motion sample interval: {sample_interval_motion}")
     
+    # Collect all pose positions to draw a continuous trace line
+    pose_positions = []
+    for i in range(len(graph.pose)):
+        if i < len(graph.pose) and any(graph.pose[i]):  # Check if pose is not empty/zero
+            pose_positions.append((float(graph.pose[i][1]), float(graph.pose[i][0])))  # (East, North)
+    
     # Plot landmarks
     print('Plotting landmarks')
     for i in range(len(m_gt)):        
@@ -1653,6 +1659,12 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
     # Plot edges with sampling
     print('Plotting edges')
     motion_count = 0
+    
+    # First plot the continuous trace line for all poses
+    if pose_positions:
+        pose_x = [pos[0] for pos in pose_positions]  # East coordinates
+        pose_y = [pos[1] for pos in pose_positions]  # North coordinates
+        ax.plot(pose_x, pose_y, 'b--', linewidth=1.5, label='Robot Trace', alpha=0.7)
     
     for k in range(len(graph.edge)):  
         if graph.edge[k][0] == 'landmark':
@@ -1702,6 +1714,17 @@ def plot_graph(graph_object, p_gt_path, H_em, m_gt, m_labels):
     
     # Plot the sampled ground truth path
     print('Plotting ground truth path')
+    
+    # Add direct line plotting for ground truth path
+    if len(sampled_gt_path) > 1:
+        # Create manual line for ground truth path for better visibility
+        gt_x = [float(pose[1]) for pose in sampled_gt_path]  # East coordinates
+        gt_y = [float(pose[0]) for pose in sampled_gt_path]  # North coordinates
+        
+        # Plot a thick, solid green line for ground truth
+        ax.plot(gt_x, gt_y, 'g-', linewidth=3, label='Ground Truth Path')
+    
+    # Also plot the ground truth poses with the original method
     for i in range(len(sampled_gt_path) - 1):
         X_i = HomogeneousTransformation(sampled_gt_path[i][0:2], sampled_gt_path[i][2])
         X_j = HomogeneousTransformation(sampled_gt_path[i+1][0:2], sampled_gt_path[i+1][2])

@@ -208,21 +208,21 @@ class LaptopPilot:
 
 
         self.sigma_motion=Matrix(3,2)
-        self.sigma_motion[0,0]= 0.15**2 # impact of v linear velocity on x           #Task
-        self.sigma_motion[0,1]= np.deg2rad(1)**2 # impact of w angular velocity on x
-        self.sigma_motion[1,0]=0.15**2 # impact of v linear velocity on y
-        self.sigma_motion[1,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on y
-        self.sigma_motion[2,0]=0.15**2 # impact of v linear velocity on gamma
-        self.sigma_motion[2,1]=np.deg2rad(0.3)**2 # impact of w angular velocity on gamma
+        self.sigma_motion[0,0]= 0.05**2 # impact of v linear velocity on x           #Task
+        self.sigma_motion[0,1]= np.deg2rad(0.5)**2 # impact of w angular velocity on x
+        self.sigma_motion[1,0]=0.1**2 # impact of v linear velocity on y
+        self.sigma_motion[1,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on y
+        self.sigma_motion[2,0]=0.5*2 # impact of v linear velocity on gamma
+        self.sigma_motion[2,1]=np.deg2rad(0.1)**2 # impact of w angular velocity on gamma
 
 
         print('3x2 motion noise model:\n', self.sigma_motion, '\n')
 
         # Observation model linear noise with range
         self.sigma_observe = Matrix(2, 2)
-        self.sigma_observe[0, 0] = 0.25**2  # 10% of range
+        self.sigma_observe[0, 0] = 0.5**2  # 10% of range
         self.sigma_observe[0, 1] = 0
-        self.sigma_observe[1, 0] = np.deg2rad(30)**2  # 5 degree per metre range
+        self.sigma_observe[1, 0] = np.deg2rad(40)**2  # 5 degree per metre range
         self.sigma_observe[1, 1] = 0
         print('2x2 measurement noise model:\n', self.sigma_observe, '\n')
 
@@ -950,7 +950,6 @@ class LaptopPilot:
                 #     self.landmark_visits[self.landmark_id] += 1
                 #     print(f'Observation of Landmark ID {self.landmark_id} (Visit #{self.landmark_visits[self.landmark_id]})')
                     
-                # Check for loop completion: transitioning from landmark 3 back to 0
                 if self.last_landmark_id == 1 and self.landmark_id == 0:
                     self.loop_count += 1
                     print("LOOP", self.loop_count ,"COMPLETED: Detected transition from landmark 3 back to landmark 0")
@@ -977,13 +976,16 @@ class LaptopPilot:
 
         # should it be completed one lap  and then it optimises then it exits the optimise and does the motion model again?
 
-        if self.loop_count >= 2 and self.optimised == False:
+        if self.loop_count >= 1 and self.optimised == False:
             self.stop_robot()
             # self.loop_count += 1
             p_=copy.copy(self.state)
             sigma_=copy.copy(self.sigma)
-
-            # completes the motion
+            p_gt[0] = self.measured_pose_northings_m
+            p_gt[1] = self.measured_pose_eastings_m
+            p_gt[2] = self.measured_pose_yaw_rad 
+            self.p_gt_path.append(p_gt)
+            # completes the motionf
             self.graph.motion(p_, sigma_, Vector(3), final=True)
             print('Finish graph data association')
             print('*************************************************')
@@ -1035,10 +1037,39 @@ class LaptopPilot:
             update_pose = next((p for p in reversed(optimised_graph_pose.pose) if np.any(p != 0)), None)
             update_pose = np.array(update_pose).flatten()
 
-            print('Unoptimised state:', self.state)
-            print('Optimised Pose:', update_pose)
-            print('Actual state:', p_gt)
+            # Create a nicely formatted table for state comparison
+            print('\n' + '='*50)
+            print('{:<20} {:<12} {:<12} {:<12}'.format('State Component', 'North (m)', 'East (m)', 'Yaw (rad)'))
+            print('-'*50)
 
+            # Fix the deprecation warnings by properly extracting elements from the arrays
+            print('{:<20} {:<12.4f} {:<12.4f} {:<12.4f}'.format(
+                'Unoptimised state:', 
+                float(p_[0, 0] if p_.shape[1] > 0 else p_[0]), 
+                float(p_[1, 0] if p_.shape[1] > 0 else p_[1]), 
+                float(p_[2, 0] if p_.shape[1] > 0 else p_[2])
+            ))
+
+            print('{:<20} {:<12.4f} {:<12.4f} {:<12.4f}'.format(
+                'Optimised Pose:', 
+                float(update_pose[0]), 
+                float(update_pose[1]), 
+                float(update_pose[2])
+            ))
+
+            print('{:<20} {:<12.4f} {:<12.4f} {:<12.4f}'.format(
+                'Actual state:', 
+                float(p_gt[0, 0] if p_gt.shape[1] > 0 else p_gt[0]), 
+                float(p_gt[1, 0] if p_gt.shape[1] > 0 else p_gt[1]), 
+                float(p_gt[2, 0] if p_gt.shape[1] > 0 else p_gt[2])
+            ))
+
+            print('='*50)
+
+            print('\nMotion Model Noise Matrix (sigma_motion):')
+            print(self.sigma_motion)
+            print('\nObservation Model Noise Matrix (sigma_observe):')
+            print(self.sigma_observe)
 
             self.state[self.N] = update_pose[self.N]
             self.state[self.E] = update_pose[self.E]
